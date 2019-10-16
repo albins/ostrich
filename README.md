@@ -5,7 +5,7 @@ Run ostrich
 -------------------------
 simply run follow command：
 $ cd fold of ostrich
-$ sbt "run tests/concat.smt2"
+$ sbt "run tests/hu-benchmarks/indexof-1"
 
 
 Get executable jar, located in target/scala-2.11/ostrich-assembly-1.0.jar
