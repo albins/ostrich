@@ -4,7 +4,7 @@ install **sbt 1.2.1** on linux
 Run ostrich
 -------------------------
 simply run follow command：
-$ cd ostrich-popl2019
+$ cd fold of ostrich
 $ sbt "run tests/concat.smt2"
 
 
