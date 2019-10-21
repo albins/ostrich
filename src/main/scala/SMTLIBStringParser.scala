@@ -127,13 +127,6 @@ object SMTLIBStringParser {
       }
     }
 
-    //    res foreach {c => print(c.toInt + " ")}
-    //    println
-    //    println(res.reverse mkString)
-    //    println
-    //    res.reverse foreach {c => print(escapeChar(c))}
-    //    println
-    //    println
     res.iterator
   }
 
@@ -200,6 +193,20 @@ class SMTLIBStringParser(_env : SMTLIBStringParser.Env,
                                  sym : SymbolRef, args : Seq[Term], polarity : Int)
   : (IExpression, SMTType) = sym match {
 
+  // hu zi add ------------------------------------------------------------
+    case PlainSymbol(n@("str.indexof" | "seq-indexof")) => {
+      translateFun(n, SMTLIBStringTheory.seq_indexof, args, _ => SMTInteger)
+    }
+    case PlainSymbol(n@"str.contains") => {
+      translatePred(n, SMTLIBStringTheory.smtparse_contains, args)
+    }
+    case PlainSymbol(n@"str.prefixof") => {
+      translatePred(n, SMTLIBStringTheory.smtparse_prefixof, args)
+    }
+    case PlainSymbol(n@"str.at") => {
+      translateFun(n, SMTLIBStringTheory.smtparse_at, args, (_.head))
+    }    
+  // hu zi add ------------------------------------------------------------
     case PlainSymbol(n@"seq-unit") =>
       translateFun(n, SMTLIBStringTheory.seq_unit, args,
         x => SMTSeq(x.head))
@@ -235,17 +242,20 @@ class SMTLIBStringParser(_env : SMTLIBStringParser.Env,
       translateFun(n, SMTLIBStringTheory.seq_first, args,
         (_.head))
 
-    case PlainSymbol(n@"seq-prefix-of") =>
-      translatePred(n, SMTLIBStringTheory.seq_prefix_of, args)
-    case PlainSymbol(n@"seq-suffix-of") =>
+    //huzi modify ----------------------
+    case PlainSymbol(n@("seq-prefix-of")) =>
+    translatePred(n, SMTLIBStringTheory.seq_prefix_of, args)
+    case PlainSymbol(n@("seq-suffix-of")) =>
       translatePred(n, SMTLIBStringTheory.seq_suffix_of, args)
+    // ----------------------------------
     case PlainSymbol(n@"seq-subseq-of") =>
       translatePred(n, SMTLIBStringTheory.seq_subseq_of, args)
 
     case PlainSymbol(n@("seq-extract" | "str.substr")) =>
       translateFun(n, SMTLIBStringTheory.seq_extract, args,
         (_.head))
-    case PlainSymbol(n@("seq-nth" | "str.at")) =>
+    case PlainSymbol(n@("seq-nth")) =>
+    // case PlainSymbol(n@("seq-nth" | "str.at")) =>
       translateFun(n, SMTLIBStringTheory.seq_nth, args,
         { case Seq(SMTSeq(t), _) => t })
 
@@ -371,8 +381,10 @@ class SMTLIBStringParser(_env : SMTLIBStringParser.Env,
       translateFun(n, f, args, (_.head))
     }
 
-    case _ =>
-      super.symApp(sym, args, polarity)
+    case _ => {
+      val res = super.symApp(sym, args, polarity)
+      res
+    }
   }
 
   private def translateFun(name : String, f : IFunction, args : Seq[Term])
@@ -541,198 +553,4 @@ class SMTLIBStringParser(_env : SMTLIBStringParser.Env,
 
   //////////////////////////////////////////////////////////////////////////////
 
-  private def registerRecFunctionsAFA(
-              funs : Seq[(IFunction, (IExpression, SMTType))]) : Unit = {
-    import IExpression._
-
-    val states = funs map (_._1)
-    val tracks = states.head.arity
-
-    // XXX
-    val funsToState: Map[IFunction, Int] = states.view.zipWithIndex.toMap
-    val aStates: collection.mutable.Seq[AFormula] =
-      collection.mutable.Seq.fill(states.size)(AFFalse)
-    val acceptingStates = new MHashSet[Int]
-    // XXX
-
-    if (!(states forall { f => f.arity == tracks }))
-      throw new Parser2InputAbsy.TranslationException(
-        "Inconsistent arities in transducer")
-
-    Console.withOut(Console.err) {
-    println("Parsing transducer (" + funs.head._1.arity + " tracks):")
-    println
-
-    for ((f, transitions) <- funs) {
-      println("State " + f.name + ":")
-
-      for (trans <- LineariseVisitor(Transform2NNF(asFormula(transitions)),
-        IBinJunctor.Or)) {
-        val conjuncts = LineariseVisitor(trans, IBinJunctor.And)
-
-        val (targetConds, otherCondsH) = conjuncts partition {
-          case EqZ(IFunApp(f, _)) if (states contains f) =>
-            true
-          case _ =>
-            false
-        }
-
-        val (emptinessConds, otherConds) = otherCondsH partition {
-          case Eq(_ : IVariable, IFunApp(seq_empty, _)) => true
-          case Eq(IFunApp(seq_empty, _), _ : IVariable) => true
-          case _ => false
-        }
-
-        //        println("emptinessConds: " + emptinessConds)
-        //        println("targetConds: " + targetConds)
-        //        println("otherConds: " + otherConds)
-
-        if (conjuncts.size == emptinessConds.size &&
-          (SymbolCollector variables and(emptinessConds)) ==
-            ((0 until tracks) map (v(_))).toSet) {
-
-          println("  (accepting)")
-          // XXX
-          acceptingStates += funsToState(f)
-          // XXX
-
-        } else targetConds match {
-
-          case Seq(EqZ(IFunApp(target, args)))
-            if args.iterator.zipWithIndex forall {
-              case (IVariable(ind), n)
-                if (ind + n + 1 == tracks) => true
-              case (IFunApp(SMTLIBStringTheory.seq_tail,
-              Seq(IVariable(ind))), n)
-                if (ind + n + 1 == tracks) => true
-              case _ =>
-                false
-            } => {
-            // XXX
-            // TODO: this code ignores the actual bit-widths!
-
-            def buildVars(track: Int): Seq[AFormula] =
-              for (i <- 0 until AFormula.widthOfChar) yield
-                AFCharVar(i + track * AFormula.widthOfChar)
-
-            def functionToAFormula(ie: IExpression): Seq[AFormula] = ie match {
-
-              case BVLit(v) =>
-                AFormula.nat2bv(v)
-
-              case IFunApp(ModuloArithmetic.bv_sub,
-                           Seq(BitWidth(),
-                               IFunApp(SMTLIBStringTheory.seq_head,
-                                       Seq(IVariable(t))),
-                               BVLit(v))) =>
-                AFormula.bvSub(buildVars(t), AFormula.nat2bv(v))
-
-              case IFunApp(ModuloArithmetic.bv_add,
-                           Seq(BitWidth(),
-                               IFunApp(SMTLIBStringTheory.seq_head,
-                                       Seq(IVariable(t))),
-                               BVLit(v))) =>
-                AFormula.bvAdd(buildVars(t), AFormula.nat2bv(v))
-
-              case IFunApp(SMTLIBStringTheory.seq_head, Seq(IVariable(t))) =>
-                buildVars(t)
-
-              case mf =>
-                throw new Exception(
-                  "Unexpected function " + mf + " in functionToAFormula")
-            }
-
-            def expressionToAFormula(ie: IExpression,
-                                     track: Int = -1): AFormula = ie match {
-              case Eq(t1: IFunApp, t2: IFunApp) =>
-                AFormula.bvEq(functionToAFormula(t1), functionToAFormula(t2))
-
-              case Eq(IFunApp(SMTLIBStringTheory.seq_head, Seq(IVariable(v))),
-                      subterm) =>
-                expressionToAFormula(subterm, v)
-
-              case Eq(subterm,
-                      IFunApp(SMTLIBStringTheory.seq_head,
-                              Seq(IVariable(v)))) =>
-                expressionToAFormula(subterm, v)
-
-              case INot(subformula) =>
-                ~expressionToAFormula(subformula)
-
-              case IBinFormula(IBinJunctor.And, f1, f2) =>
-                expressionToAFormula(f1) &
-                  expressionToAFormula(f2)
-
-              case IBinFormula(IBinJunctor.Or, f1, f2) =>
-                expressionToAFormula(f1) |
-                  expressionToAFormula(f2)
-
-              case IAtom(ModuloArithmetic.bv_ule, Seq(BitWidth(), f1, f2)) =>
-                AFormula.bvLeq(functionToAFormula(f1), functionToAFormula(f2))
-
-              case IAtom(ModuloArithmetic.bv_ult, Seq(BitWidth(), f1, f2)) =>
-                AFormula.bvLt(functionToAFormula(f1), functionToAFormula(f2))
-
-              case ITermITE(cond, left, right) => {
-                val i = expressionToAFormula(cond)
-                val t = functionToAFormula(left)
-                val e = functionToAFormula(right)
-
-                (i & AFormula.bvEq(buildVars(track), t)) |
-                  (~i & AFormula.bvEq(buildVars(track), e))
-              }
-
-              case term =>
-                throw new Exception(
-                  "Unexpected term " + term + " " + term.getClass)
-            }
-
-            val s = funsToState(f)
-            val t = funsToState(target)
-            val ss = args.foldLeft[AFormula](AFTrue) { case (formula, arg) =>
-              formula & (arg match {
-                case IFunApp(SMTLIBStringTheory.seq_tail, Seq(IVariable(v))) =>
-                  ~AFSpecSymb(v)
-
-                case IVariable(v) =>
-                  AFormula.createEpsilon(v)
-              })
-            }
-
-            val sym =
-              otherConds.foldLeft[AFormula](AFTrue) {
-                case (formula, term) =>
-                  formula & expressionToAFormula(term)
-              }
-
-            aStates(s) = aStates(s) | (AFStateVar(t) & ss & sym)
-            // XXX
-            print("  -> " + target.name + ": ")
-            PrincessLineariser printExpression and(otherConds)
-            println
-          }
-
-          case _ =>
-            throw new Parser2InputAbsy.TranslationException(
-              "Every transition needs exactly one target state")
-        }
-      }
-
-      println
-    }
-    }
-
-    var aFinalStates: AFormula =
-      AFormula.and(for (n <- 0 until aStates.size;
-                        if !(acceptingStates contains n))
-        yield ~AFStateVar(n))
-
-    // XXX
-    val res = new AFA(AFStateVar(0), aStates.toVector, aFinalStates)
-
-    RRFunsToAFA.addFun2AFA(states.head, res)
-    //    println(res)
-    //    println
-    // XXX
-  }
 }

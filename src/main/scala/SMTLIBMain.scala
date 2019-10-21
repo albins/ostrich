@@ -22,9 +22,9 @@ import ap._
 import ap.parser._
 import ap.parameters.PreprocessingSettings
 import ap.util.CmdlParser
+
 import scala.collection.mutable.ArrayBuffer
 import ap.theories.TheoryRegistry
-
 import strsolver.preprop.RRFunsToTransducer
 
 object SMTLIBMain {
@@ -47,32 +47,6 @@ object SMTLIBMain {
         model = value
       case CmdlParser.Opt("assert", value) =>
         assertions = value
-      case CmdlParser.Opt("eager", value) =>
-        Flags.eagerAutomataOperations = value
-      case CmdlParser.Opt("times", value) =>
-        Flags.measureTimes = value
-      case CmdlParser.Opt("length", value) =>
-        Flags.useLength = value
-      case CmdlParser.Opt("forward", value) =>
-        Flags.forwardApprox = value
-      case CmdlParser.Opt("splitOpt", value) =>
-        Flags.splitOptimization = value
-      case CmdlParser.ValueOpt("modelChecker", mcs) =>
-        try {
-          mcs.split(",").foreach { mc =>
-            val modelChecker = Flags.ModelChecker withName mc
-
-            if (Flags.isABC && modelChecker == Flags.ModelChecker.nuxmv)
-              Flags.modelChecker -= Flags.ModelChecker.abc
-
-            Flags.modelChecker += modelChecker
-          }
-        } catch {
-          case _ : NoSuchElementException =>
-            throw new Exception("unknown model checker")
-        }
-      case CmdlParser.Opt("minimalSuccessors", value) =>
-        Flags.minimalSuccessors = value
       case str =>
         filenames += str
     }
@@ -100,6 +74,7 @@ object SMTLIBMain {
     ////////////////////////////////////////////////////////////////////////////
 
     val fileName = filenames.head
+//debug----------------
     Console.err.println("Reading file " + fileName + " ...")
 
     val reader = new SMTReader(fileName)
@@ -121,22 +96,23 @@ object SMTLIBMain {
       functionEnc)
 
     // tell the AFA store about introduced relations
-    for ((p, f) <- functionEnc.predTranslation)
-      if ((TheoryRegistry lookupSymbol f).isEmpty) {
-        RRFunsToAFA.addRel2Fun(p, f)
-        RRFunsToTransducer.addRel2Fun(p, f)
-      }
+   for ((p, f) <- functionEnc.predTranslation)
+     if ((TheoryRegistry lookupSymbol f).isEmpty) {
+       RRFunsToTransducer.addRel2Fun(p, f)
+     }
 
     val formulaWithoutQuans = SMTReader.eliminateUniQuantifiers(formula)
     val intFormula = StringTheoryTranslator(formulaWithoutQuans,
       reader.wordConstants)
 
     ap.util.Timer.reset
-
+    val p = SimpleAPI
     SimpleAPI.withProver(enableAssert = assertions) { p =>
       import IExpression._
       import SimpleAPI._
       import p._
+      import strsolver.preprop.AllocRegisterTerm
+      import strsolver.preprop.StoreLC
 
       try {
         addTheory(StringTheory)
@@ -147,6 +123,7 @@ object SMTLIBMain {
 
         ?? (intFormula)
 
+//debug----------------
         Console.err.println
         val res = {
           checkSat(false)
@@ -154,64 +131,35 @@ object SMTLIBMain {
             timeoutChecker()
           ???
         }
-
         res match {
           case ProverStatus.Valid => println("unsat")
           case ProverStatus.Inconclusive => println("unknown")
           case ProverStatus.OutOfMemory => println("OOM")
           case ProverStatus.Invalid => {
             println("sat")
-
-            if (model) {
-              Console.err.println
-              for (c <- reader.wordConstants)
-                for (v <- evalPartial(c)) {
-                  print("(define-fun " +
-                        (SMTLineariser quoteIdentifier c.name) +
-                        " () String ")
-                  println("\"" +
-                          SMTLIBStringParser.escapeString(
-                            StringTheory.asString(v)(decoderContext)) +
-                          "\")")
-                }
-              for (c <- reader.otherConstants)
-                for (v <- evalPartial(c)) {
-                  print("(define-fun " +
-                        (SMTLineariser quoteIdentifier c.name) +
-                        " () Int ")
-                  println("" + v + ")")
-                }
-            }
           }
         }
-
-        if (Flags.measureTimes) {
-          Console.err.println
-          Console.err.println(ap.util.Timer)
-        }
-
-      } finally {
+      }
+      finally {
         // Make sure that the prover actually stops. If stopping takes
         // too long, kill the whole process
         stop(false)
-        if (getStatus((timeout getOrElse 10000.toLong) max 10000.toLong) ==
+        if (getStatus(100) ==
           ProverStatus.Running) {
-          println("(error \"timeout, killing solver process\")")
+          println("timeout")
           System exit 1
         }
       }
     }
   } catch {
     case t@(TimeoutException | StoppedException) => {
-      println("unknown")
-      if (Flags.measureTimes) {
-        Console.err.println
-        Console.err.println(ap.util.Timer)
-      }
+      println("timeout")
+      System exit 1
     }
     case t : Throwable => {
       println("(error \"" + t.getMessage + "\")")
-        t.printStackTrace
+      t.printStackTrace
+      System exit 1
     }
   }
 

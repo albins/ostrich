@@ -39,12 +39,13 @@ class TransducerPreOp(t : Transducer) extends PreOp {
 
   def apply(argumentConstraints : Seq[Seq[Automaton]],
             resultConstraint : Automaton)
-          : (Iterator[Seq[Automaton]], Seq[Seq[Automaton]]) = {
+          : (Iterator[(Seq[Automaton], LinearConstraints)], Seq[Seq[Automaton]]) = {
     val rc : AtomicStateAutomaton = resultConstraint match {
       case resCon : AtomicStateAutomaton => resCon
       case _ => throw new IllegalArgumentException("TransducerPreOp needs an AtomicStateAutomaton")
     }
-    (Iterator(Seq(t.preImage(rc))), List())
+    val a = new LinearConstraints
+    (Iterator((Seq(t.preImage(rc)), a)), List())
   }
 
   override def forwardApprox(argumentConstraints : Seq[Seq[Automaton]]) : Automaton = {

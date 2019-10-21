@@ -47,7 +47,7 @@ trait PreOp {
    */
   def apply(argumentConstraints : Seq[Seq[Automaton]],
             resultConstraint : Automaton)
-          : (Iterator[Seq[Automaton]], Seq[Seq[Automaton]])
+          : (Iterator[(Seq[Automaton], LinearConstraints)], Seq[Seq[Automaton]])
 
   /**
    * Evaluate the described function; return <code>None</code> if the
@@ -70,3 +70,5 @@ trait PreOp {
   def forwardApprox(argumentConstraints : Seq[Seq[Automaton]]) : Automaton =
     BricsAutomaton.makeAnyString
 }
+
+

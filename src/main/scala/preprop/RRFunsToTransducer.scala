@@ -204,6 +204,7 @@ object RRFunsToTransducer {
       }
     }}
 
+//debug----------------
     println
 
     builder setInitialState funs2Brics(stateFuns.head)

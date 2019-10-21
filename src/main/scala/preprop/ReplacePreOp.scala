@@ -292,7 +292,7 @@ class ReplacePreOpTran(tran : Transducer) extends PreOp {
 
   def apply(argumentConstraints : Seq[Seq[Automaton]],
             resultConstraint : Automaton)
-          : (Iterator[Seq[Automaton]], Seq[Seq[Automaton]]) = {
+          : (Iterator[(Seq[Automaton], LinearConstraints)], Seq[Seq[Automaton]]) = {
     val rc : AtomicStateAutomaton = resultConstraint match {
       case resCon : AtomicStateAutomaton => resCon
       case _ => throw new IllegalArgumentException("ReplacePreOp needs an AtomicStateAutomaton")
@@ -306,15 +306,18 @@ class ReplacePreOpTran(tran : Transducer) extends PreOp {
     // y' = tran(y); x = replace(y', w, z)
     //
     val cg = CaleyGraph[rc.type](rc, zcons)
+    val a = new LinearConstraints
     val res =
     for (box <- cg.getAcceptNodes.iterator;
+         // box.getEdges is input @parameter{internal} of preImage
          newYCon = PreImageAutomaton(tran, rc, box.getEdges)) yield {
       val newZCons = box.getEdges.map({ case (q1, q2) =>
         val fin = Set(q2).asInstanceOf[Set[AtomicStateAutomaton#State]]
-        InitFinalAutomaton(rc, q1, fin)
+         InitFinalAutomaton(rc, q1, fin)
+//        (InitFinalAutomaton(rc, q1, fin), a)
       }).toSeq
       val newZCon = ProductAutomaton(newZCons)
-      Seq(newYCon, newZCon)
+      (Seq(newYCon, newZCon), a)
     }
 
     (res, argumentConstraints)

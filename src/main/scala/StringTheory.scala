@@ -38,12 +38,13 @@ object StringTheory extends Theory {
   override def toString = "StringTheory"
 
   // TODO: use proper sorts for the operations
-
+                                //  name     arity partial relational
+                                //    ↓        ↓    ↓     ↓
   val wordEps    = new IFunction("wordEps",    0, true, false)
   val wordCat    = new IFunction("wordCat",    2, true, false)
   val wordChar   = new IFunction("wordChar",   1, true, false)
 
-  val wordLen    = new IFunction("wordLen",    1, true, false)
+  val wordLen    = new IFunction("wordLen",    1, true, false)    // length func
 
   // defined operation
   val wordSlice  = new IFunction("wordSlice",  3, true, false)
@@ -59,12 +60,20 @@ object StringTheory extends Theory {
   val rexRange   = new IFunction("rexRange",   2, true, false)
 
   /// Constraints representing transducers
-  val replaceall = new IFunction("replaceall", 3, true, false)
-  val replaceallre = new IFunction("replaceallre", 3, true, false)
-  val replace    = new IFunction("replace",    3, true, false)
-  val replacere  = new IFunction("replacere",  3, true, false)
+  val replaceall = new IFunction("replaceall", 3, true, false)  // pattern is a concreteword
+  val replaceallre = new IFunction("replaceallre", 3, true, false)  // pattern is a regex
+  val replace    = new IFunction("replace",    3, true, false)  // pattern is a concreteword
+  val replacere  = new IFunction("replacere",  3, true, false)  // pattern is a regex
   val reverse    = new IFunction("reverse",    1, true, false)
   val wordDiff   = new Predicate("wordDiff",   2)
+
+  // hu zi add -------------------------------------------------------------------
+  val substring  = new IFunction("substring",  3, true, false)
+  val indexof    = new IFunction("indexof",    3, true, false)
+  val str_contains = new Predicate("str_contains",    2)
+  val str_prefixof = new Predicate("str_prefixof",    2)
+  val str_at     = new IFunction("str_at",     2, true, false)
+  // hu zi add -------------------------------------------------------------------
 
   val member     = new Predicate ("member",    2)
 
@@ -146,33 +155,15 @@ object StringTheory extends Theory {
   val functions = List(wordEps, wordCat, wordChar, wordLen, wordSlice,
                        rexEmpty, rexEps, rexSigma, rexCat, rexChar,
                        rexUnion, rexStar, rexNeg, rexRange, replaceall,
-                       replaceallre, replace, reverse) ++
+                       replaceallre, replace, reverse,
+  // hu zi add -------------------------------------------------------------------
+                       substring, indexof, str_at) ++
+  // hu zi add -------------------------------------------------------------------
                   UserFunctionRegistry.stringTheoryFuns
 
   // TODO: have different theory objects for the different solvers
-  val iAxioms = if (Flags.enabledSolvers contains Flags.Solver.afa_mc) {
-    import IExpression._
-
-    all(w => trig(wordLen(w) >= 0, wordLen(w))) &
-//
-    all(w => all(beg => all(end => trig(
-      (beg >= 0 & beg <= end & end <= wordLen(w)) ==>
-       ex(p => ex(s =>
-         wordLen(p) === beg & wordLen(wordSlice(w, beg, end)) === (end - beg) &
-                         word(p, wordSlice(w, beg, end), s) === w)),
-                     wordSlice(w, beg, end))))) &
-//
-//    (wordLen(wordEps()) === 0) &
-       all(c => trig(wordLen(wordChar(c)) === 1, wordLen(wordChar(c)))) &
-      all(x => all(y => trig(wordLen(wordCat(x, y)) === wordLen(x) + wordLen(y),
-                            wordLen(wordCat(x, y)))))
-
-     /* all(x => all(y => all(z =>
-          trig(wordCat(wordCat(x, y), z) === wordCat(x, wordCat(y, z)),
-             wordCat(x, wordCat(y, z)))))), */
-  } else {
+  val iAxioms =
     IBoolLit(true)
-  }
 
   val (functionalPredicatesSeq, preAxioms, preOrder,
        functionPredicateMap) =
@@ -180,9 +171,11 @@ object StringTheory extends Theory {
                      theoryAxioms = iAxioms)
 
   val functionPredicateMapping = functions zip functionalPredicatesSeq
-  val order = preOrder extendPred List(member, wordDiff)
+  // huzi modify------------------------
+  val order = preOrder extendPred List(member, wordDiff, str_contains)
   val functionalPredicates = functionalPredicatesSeq.toSet
-  val predicates = List(member, wordDiff) ++ functionalPredicatesSeq
+  val predicates = List(member, wordDiff, str_contains, str_prefixof) ++ functionalPredicatesSeq
+  // huzi modify------------------------
   val totalityAxioms = Conjunction.TRUE
 
   private val predFunMap =
@@ -194,71 +187,8 @@ object StringTheory extends Theory {
 
   private val p = functionPredicateMap
 
-  val axioms = if (Flags.enabledSolvers contains Flags.Solver.afa_mc) {
-    import TerForConvenience._
-    implicit val _ = order
-
-    val epsAxiom1 =
-    forall(forall(
-        (p(wordEps)(List(l(v(0)))) & p(wordLen)(List(l(v(0)), l(v(1)))))
-        ==>
-        (v(1) === 0)
-    ))
-
-    val epsAxiom2 =
-    forall(forall(forall(
-        (p(wordCat)(List(l(v(0)), l(v(1)), l(v(2)))) & p(wordEps)(List(l(v(2)))))
-        ==>
-        ((v(0) === v(2)) & (v(1) === v(2)))
-    )))
-
-    val epsAxiom3 =
-    forall(forall(forall(
-        (p(wordCat)(List(l(v(0)), l(v(1)), l(v(2)))) & p(wordEps)(List(l(v(0)))))
-        ==>
-        (v(1) === v(2))
-    )))
-
-    val epsAxiom4 =
-    forall(forall(forall(
-        (p(wordCat)(List(l(v(0)), l(v(1)), l(v(2)))) & p(wordEps)(List(l(v(1)))))
-        ==>
-        (v(0) === v(2))
-    )))
-
-    val charAxiom1 =
-    forall(forall(forall(
-        (p(wordChar)(List(l(v(0)), l(v(2)))) &
-         p(wordChar)(List(l(v(1)), l(v(2)))))
-        ==>
-        (v(0) === v(1))
-    )))
-
-    val charAxiom2 =
-    forall(forall(forall(forall(forall(forall(forall(
-        (p(wordChar)(List(l(v(0)), l(v(1)))) &
-         p(wordChar)(List(l(v(2)), l(v(3)))) &
-         p(wordCat)(List(l(v(1)), l(v(4)), l(v(5)))) &
-         p(wordCat)(List(l(v(3)), l(v(6)), l(v(5)))))
-        ==>
-        ((v(0) === v(2)) & (v(1) === v(3)) & (v(4) === v(6)))
-    )))))))
-
-    val charAxiom3 =
-    forall(forall(forall(forall(forall(forall(forall(
-        (p(wordChar)(List(l(v(0)), l(v(1)))) &
-         p(wordChar)(List(l(v(2)), l(v(3)))) &
-         p(wordCat)(List(l(v(4)), l(v(1)), l(v(5)))) &
-         p(wordCat)(List(l(v(6)), l(v(3)), l(v(5)))))
-        ==>
-        ((v(0) === v(2)) & (v(1) === v(3)) & (v(4) === v(6)))
-    )))))))
-
-    conj(List(epsAxiom1, epsAxiom2, epsAxiom3, epsAxiom4,
-              charAxiom1, charAxiom2, charAxiom3, preAxioms))
-  } else {
+  val axioms =
     Conjunction.TRUE
-  }
 
   val predicateMatchConfig : Signature.PredicateMatchConfig = Map()
   val triggerRelevantFunctions : Set[IFunction] = functions.toSet
@@ -282,7 +212,7 @@ object StringTheory extends Theory {
 
     ////////////////////////////////////////////////////////////////////////////
 
-    private val afaSolver = new AFASolver
+    // private val afaSolver = new AFASolver
     private val prepropSolver = new PrepropSolver
 
     private val modelCache =
@@ -292,24 +222,16 @@ object StringTheory extends Theory {
     private def findStringModel(goal : Goal)
                               : Option[Map[Term, List[Either[Int, Term]]]] =
       modelCache(goal.facts) {
-            // TODO: run solvers after each other
-            Flags.enabledSolvers.head match {
-              case Flags.Solver.afa_mc =>
-                afaSolver.findStringModel(goal)
-              case Flags.Solver.preprop =>
                 for (m <- prepropSolver.findStringModel(goal)) yield {
                   m mapValues (w => w map (Left(_)))
                 }
-            }
+//            }
       }
 
     override def handleGoal(goal : Goal)
                        : Seq[Plugin.Action] = goalState(goal) match {
 
       case Plugin.GoalState.Final => Console.withOut(Console.err) {
-
-//println("handleGoal:")
-//println(goal)
 
         breakCyclicEquations(goal) match {
           case Some(actions) =>

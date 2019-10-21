@@ -18,19 +18,15 @@
 
 package strsolver
 
-import strsolver.preprop.{PreOp, Exploration, Automaton, BricsAutomaton,
-                          ConcatPreOp, ReplaceAllPreOp, ReplacePreOp,
-                          ReversePreOp,
-                          RRFunsToTransducer, TransducerPreOp,
-                          Transducer, AtomicStateAutomaton}
-
+import strsolver.preprop.{AtomicStateAutomaton, Automaton, BricsAutomaton, ConcatPreOp, Exploration, IndexOfPreOp, LengthPreOp, PreOp, RRFunsToTransducer, ReplaceAllPreOp, ReplaceAllPreOpW, ReplacePreOp, ReplacePreOpW, ReversePreOp, SubStringPreOp, Transducer, TransducerPreOp}
 import ap.SimpleAPI
-import ap.terfor.{Term, TerForConvenience}
+import ap.terfor.{TerForConvenience, Term}
 import ap.terfor.preds.PredConj
 import ap.types.Sort
 import ap.proof.goal.Goal
 import ap.basetypes.IdealInt
-
+import ap.parser.Internal2InputAbsy
+import ap.terfor.linearcombination.LinearCombination
 import dk.brics.automaton.{RegExp, Automaton => BAutomaton}
 
 import scala.collection.breakOut
@@ -40,6 +36,9 @@ class PrepropSolver {
 
   import StringTheory.{member, replaceall, replaceallre, replace, replacere,
                        reverse, wordEps, wordCat, wordChar, wordDiff, wordLen,
+                       // hu zi add -----------------------------------------------
+                       substring, indexof, str_contains, str_prefixof, str_at,
+                       // hu zi add -----------------------------------------------
                        rexEmpty, rexEps, rexSigma,
                        rexStar, rexUnion, rexChar, rexCat, rexNeg, rexRange,
                        FunPred}
@@ -51,19 +50,18 @@ class PrepropSolver {
 
   def findStringModel(goal : Goal) : Option[Map[Term, List[Int]]] = {
     val atoms = goal.facts.predConj
+    // 将输入中的整数约束提取出来
+    val inputIntFormula = goal.facts.arithConj
+    IntConstraintStore.setFormula(inputIntFormula)
+    // IntConstraintStore.setOrder(goal.order)
     implicit val order = goal.order
     val regex2AFA = new Regex2AFA(atoms)
 
-    val containsLength = !(atoms positiveLitsWithPred p(wordLen)).isEmpty
-    val eagerMode = Flags.eagerAutomataOperations
-    val useLength = containsLength || Flags.useLength
 
-    if (containsLength)
-      Console.err.println(
-        "Warning: using +length to handle length constraints")
-
-//    println(atoms)
-
+    val containsLength = !(atoms positiveLitsWithPred p(wordLen)).isEmpty || 
+                         !(atoms positiveLitsWithPred p(substring)).isEmpty ||
+                         !(atoms positiveLitsWithPred p(indexof)).isEmpty
+   // all constant term in atoms, store their value in Seq[Int]
     val concreteWords = new MHashMap[Term, Seq[Int]]
     findConcreteWords(atoms) match {
       case Some(w) => concreteWords ++= w
@@ -72,8 +70,9 @@ class PrepropSolver {
 
     // extract regex constraints and function applications from the
     // literals
-    val funApps = new ArrayBuffer[(PreOp, Seq[Term], Term)]
-    val regexes = new ArrayBuffer[(Term, Automaton)]
+    val funApps = new ArrayBuffer[(PreOp, Seq[Term], Term)]   // all the funciton except length and indexof
+    val intFunApps = new ArrayBuffer[(PreOp, Seq[Term], Term)]  // length and indexof funciton
+    val regexes = new ArrayBuffer[(Term, Automaton)]    // all the res and arg aut
     val lengthVars = new MHashMap[Term, Term]
 
     for (a <- atoms.positiveLits) a.pred match {
@@ -85,37 +84,145 @@ class PrepropSolver {
         // nothing, can be ignored
       case `member` =>
         regexes += ((a.head, BricsAutomaton(a.last, atoms)))
+      // huzi add----------------------------------------------------------
+      case `str_contains` => {
+        if(concreteWords.contains(a.last)) {
+          val str = concreteWords(a.last).map(_.toChar).mkString
+          println("str.contains("+a.head+","+str+")")
+          val tmpAut = BricsAutomaton.fromString(str)
+          val anyStrAut1 = BAutomaton.makeAnyString
+          val anyStrAut2 = BAutomaton.makeAnyString
+          regexes += ((a.head, BricsAutomaton.concat(List(anyStrAut1, tmpAut.underlying, anyStrAut2))))
+        } else{
+          println("str_contains not -----------------concreate word")
+          println("unknow")
+          System.exit(1)
+        }
+      }
+
+      case `str_prefixof` => {
+       println("a is "+ a)
+       println("a.head is " + a.head)
+        if(concreteWords.contains(a.head)) {
+         println("concreate word " + concreteWords(a.head))
+          val str = concreteWords(a.head).map(_.toChar).mkString
+          println("str.prefix("+a.last+","+str+")")
+          val tmpAut = BricsAutomaton.fromString(str)
+          val anyStrAut = BAutomaton.makeAnyString
+          regexes += ((a.head, BricsAutomaton.concat(List(tmpAut.underlying, anyStrAut))))
+        } else{
+          println("str_prefixof not -----------------concreate word")
+          println("unknow")
+          System.exit(1)
+        }
+      }      
+      // huzi add----------------------------------------------------------
+
+
       case FunPred(`wordCat`) =>
         funApps += ((ConcatPreOp, List(a(0), a(1)), a(2)))
+
+      // huzi modify ------------------------------------------------------------------------
+      // TODO : when replacement is constant
+      // design parameter of ReplacePreOpW、 ReplaceAllPreOpW
       case FunPred(`replaceall`) => {
         val b = (regex2AFA buildStrings a(1)).next
-        funApps += ((ReplaceAllPreOp(b), List(a(0), a(2)), a(3)))
+       if(concreteWords contains(a(2))){
+          // println("handle replaceall func with replacement of concreteword")
+          val word = (regex2AFA buildStrings a(2)).next.map(_.left.get) 
+          funApps += ((ReplaceAllPreOpW(b,word), List(a(0), a(2)), a(3)))
+        }else{
+          printf("can not handle this kind of replace( replacement is not concreteword )\n")
+          printf("unknow\n")
+          return Some(Map())
+        }
       }
       case FunPred(`replace`) => {
         val b = (regex2AFA buildStrings a(1)).next
-        funApps += ((ReplacePreOp(b), List(a(0), a(2)), a(3)))
+        if(concreteWords contains(a(2))){
+          // println("handle replace func with replacement of concreteword")
+          val word = (regex2AFA buildStrings a(2)).next.map(_.left.get) 
+          funApps += ((ReplaceAllPreOpW(b,word), List(a(0), a(2)), a(3)))
+        }else{
+          printf("can not handle this kind of replace( replacement is not concreteword )\n")
+          printf("unknow\n")
+          return Some(Map())
+        }
       }
       case FunPred(`replaceallre`) => {
         regexValue(a(1), regex2AFA) match {
           case Left(w) =>
-            funApps += ((ReplaceAllPreOp(w), List(a(0), a(2)), a(3)))
+            if(concreteWords contains(a(2))){
+              // println("handle replaceall-re func with replacement of concreteword")
+              val word = (regex2AFA buildStrings a(2)).next.map(_.left.get) 
+              funApps += ((ReplaceAllPreOpW(w,word), List(a(0), a(2)), a(3)))
+            }else{
+              printf("can not handle this kind of replace( replacement is not concreteword )\n")
+              printf("unknow\n")
+              return Some(Map())
+            }
           case Right(aut) =>
-            funApps += ((ReplaceAllPreOp(aut), List(a(0), a(2)), a(3)))
+            if(concreteWords contains(a(2))){
+              // println("handle replace-re func with replacement of concreteword")
+              val word = (regex2AFA buildStrings a(2)).next.map(_.left.get) 
+              funApps += ((ReplaceAllPreOpW(aut,word), List(a(0), a(2)), a(3)))
+            }else{
+              printf("can not handle this kind of replace( replacement is not concreteword )\n")
+              printf("unknow\n")
+              return Some(Map())
+            }
         }
       }
       case FunPred(`replacere`) => {
         regexValue(a(1), regex2AFA) match {
           case Left(w) =>
-            funApps += ((ReplacePreOp(w), List(a(0), a(2)), a(3)))
+            if(concreteWords contains(a(2))){
+              // println("handle replace-re func with replacement of concreteword")
+              val word = (regex2AFA buildStrings a(2)).next.map(_.left.get) 
+              funApps += ((ReplacePreOpW(w,word), List(a(0), a(2)), a(3)))
+            }else{
+              printf("can not handle this kind of replace( replacement is not concreteword )\n")
+              printf("unknow\n")
+              return Some(Map())
+            }
           case Right(aut) =>
-            funApps += ((ReplacePreOp(aut), List(a(0), a(2)), a(3)))
+            if(concreteWords contains(a(2))){
+              // println("handle replace-re func with replacement of concreteword")
+              val word = (regex2AFA buildStrings a(2)).next.map(_.left.get) 
+              funApps += ((ReplacePreOpW(aut,word), List(a(0), a(2)), a(3)))
+            }else{
+              printf("can not handle this kind of replace( replacement is not concreteword )\n")
+              printf("unknow\n")
+              return Some(Map())
+            }
         }
       }
+      // huzi modify -------------------------------------------------------------------------
       case FunPred(`wordLen`) => {
-        lengthVars.put(a(0), a(1))
         if (a(1).isZero)
           regexes += ((a(0), BricsAutomaton fromString ""))
+        // hu zi add -------------------------------------------------------------------
+        else{
+          intFunApps += ((LengthPreOp(Internal2InputAbsy(a(1))), List(a(0)), a(1)))
+        }
+        // hu zi add -------------------------------------------------------------------
       }
+      // hu zi add -------------------------------------------------------------------
+      case FunPred(`substring`) => {
+        funApps += ((SubStringPreOp(a(1), a(2)), List(a(0), a(1), a(2)), a(3)))
+      }
+      case FunPred(`indexof`) => {
+        println("handle indexof")
+        if(!concreteWords.contains(a(1)))
+          throw new Exception("indexof pattern is not a concrete word ")
+        val u = (regex2AFA buildStrings a(1)).next.map(_.left.get.toChar)
+        intFunApps += ((IndexOfPreOp(u, Internal2InputAbsy(a(3)), Internal2InputAbsy(a(2))), List(a(0)), a(3)))
+      }
+      case FunPred(`str_at`) => {
+        funApps += ((SubStringPreOp(a(1), a(1)), List(a(0), a(1), a(1)), a(2)))
+      }
+
+      // hu zi add -------------------------------------------------------------------
       case FunPred(`reverse`) =>
         funApps += ((ReversePreOp, List(a(0)), a(1)))
       case FunPred(f) if rexOps contains f =>
@@ -126,7 +233,7 @@ class PrepropSolver {
         funApps += ((TransducerPreOp(RRFunsToTransducer.get(pred).get),
                      List(a(0)), a(1)))
       case p if (StringTheory.predicates contains p) =>
-        Console.err.println("Warning: ignoring " + a)
+        // Console.err.println("Warning: ignoring " + a)
       case _ =>
         // nothing
     }
@@ -134,41 +241,42 @@ class PrepropSolver {
     for (a <- atoms.negativeLits) a.pred match {
       case `member` =>
         regexes += ((a.head, !BricsAutomaton(a.last, atoms)))
+      case `str_contains` => {
+        if(concreteWords.contains(a.last)) {
+          val str = concreteWords(a.last).map(_.toChar).mkString
+          println("!str.contains("+a.head+","+str+")")
+          val tmpAut = BricsAutomaton.fromString(str)
+          val anyStrAut1 = BAutomaton.makeAnyString
+          val anyStrAut2 = BAutomaton.makeAnyString
+          regexes += ((a.head, !BricsAutomaton.concat(List(anyStrAut1, tmpAut.underlying, anyStrAut2))))
+        }else{
+          println("str_contains not -----------------concreate word")
+          println("unknow")
+          System.exit(1)
+        }
+      }
+      case `str_prefixof` => {
+       println("a is "+ a)
+       println("a.head is " + a.head)
+        if(concreteWords.contains(a.head)) {
+         println("concreate word " + concreteWords(a.head))
+          val str = concreteWords(a.head).map(_.toChar).mkString
+          println("str.prefix("+a.last+","+str+")")
+          val tmpAut = BricsAutomaton.fromString(str)
+          val anyStrAut = BAutomaton.makeAnyString
+          regexes += ((a.head, !BricsAutomaton.concat(List(tmpAut.underlying, anyStrAut))))
+        } else{
+          println("str_prefixof not -----------------concreate word")
+          println("unknow")
+          System.exit(1)
+        }
+      }  
       case p if (StringTheory.predicates contains p) =>
-        Console.err.println("Warning: ignoring !" + a)
+         Console.err.println("Warning: ignoring !" + a)
       case _ =>
         // nothing
     }
 
-    {
-      import TerForConvenience._
-
-      val lengthConstants =
-        (for (t <- lengthVars.values.iterator;
-              c <- t.constants.iterator) yield c).toSet
-
-      for (lc <- goal.facts.arithConj.negativeEqs) lc match {
-        case Seq((IdealInt.ONE, c), (IdealInt.MINUS_ONE, d))
-          if concreteWords contains l(c) => {
-            val str : String = concreteWords(l(c)).map(i => i.toChar)(breakOut)
-            regexes += ((l(d), !(BricsAutomaton fromString str)))
-        }
-        case Seq((IdealInt.ONE, d), (IdealInt.MINUS_ONE, c))
-          if concreteWords contains l(c) => {
-            val str : String = concreteWords(l(c)).map(i => i.toChar)(breakOut)
-            regexes += ((l(d), !(BricsAutomaton fromString str)))
-        }
-        case lc
-          if useLength && (lc.constants forall lengthConstants) =>
-          // nothing
-        case _ =>
-          Console.err.println("Warning: ignoring " + (lc =/= 0))
-      }
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
-
-    // check whether any of the function applications can be evaluated
     {
       var changed = true
       while (changed) {
@@ -196,11 +304,13 @@ class PrepropSolver {
       }
     }
 
+    // terms in regexes and funApps( both res and args involved)
     val interestingTerms =
       ((for ((t, _) <- regexes.iterator) yield t) ++
        (for ((_, args, res) <- funApps.iterator;
              t <- args.iterator ++ Iterator(res)) yield t)).toSet
 
+    // add aut constraints to concreteWords in interestingTerms
     for (t <- interestingTerms)
       (concreteWords get t) match {
         case Some(w) => {
@@ -210,33 +320,16 @@ class PrepropSolver {
         case None =>
           // nothing
       }
+    // regexes is initialConstraints in Exploration, from above, we known 
+    // that initialConstraints consists of "member" funciton and concreteword
+    // in interestingTerms
 
     ////////////////////////////////////////////////////////////////////////////
 
     SimpleAPI.withProver { lengthProver =>
-      val lProver =
-        if (useLength) {
-          lengthProver setConstructProofs true
-          lengthProver.addConstantsRaw(order sort order.orderedConstants)
-
-          lengthProver addAssertion goal.facts.arithConj
-
-          for (t <- interestingTerms)
-            lengthVars.getOrElseUpdate(
-              t, lengthProver.createConstantRaw("" + t + "_len", Sort.Nat))
-
-          Some(lengthProver)
-        } else {
-          None
-        }
-
       val exploration =
-        if (eagerMode)
-          Exploration.eagerExp(funApps, regexes,
-                               lProver, lengthVars.toMap, containsLength)
-        else
-          Exploration.lazyExp(funApps, regexes,
-                              lProver, lengthVars.toMap, containsLength)
+          Exploration.lazyExp(funApps, intFunApps, regexes,
+                              lengthVars.toMap, containsLength)
 
       exploration.findModel match {
         case Some(model) => Some((model mapValues (_.toList)) ++

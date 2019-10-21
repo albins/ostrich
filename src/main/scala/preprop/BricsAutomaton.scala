@@ -19,22 +19,16 @@
 package strsolver.preprop
 
 import strsolver.Regex2AFA
-
 import ap.terfor.Term
 import ap.terfor.preds.PredConj
+import ap.parser.{IConstant, ITerm, InputAbsy2Internal, Internal2InputAbsy}
+import dk.brics.automaton.{BasicAutomata, BasicOperations, RegExp, Transition, Automaton => BAutomaton, State => BState}
 
-import dk.brics.automaton.{BasicAutomata, BasicOperations, RegExp, Transition,
-                           Automaton => BAutomaton, State => BState}
-
-import scala.collection.JavaConversions.{asScalaIterator,
-                                         iterableAsScalaIterable}
-import scala.collection.mutable.{HashMap => MHashMap,
-                                 HashSet => MHashSet,
-                                 LinkedHashSet => MLinkedHashSet,
-                                 Stack => MStack,
-                                 TreeSet => MTreeSet,
-                                 MultiMap => MMultiMap,
-                                 Set => MSet}
+import scala.collection.JavaConversions.{asScalaIterator, iterableAsScalaIterable}
+import scala.collection.mutable.{ArrayBuffer, HashMap => MHashMap, HashSet => MHashSet, LinkedHashSet => MLinkedHashSet, MultiMap => MMultiMap, Set => MSet, Stack => MStack, TreeSet => MTreeSet}
+import scala.collection.immutable.List
+import java.util.{List => JList}
+import scala.collection.JavaConverters._
 
 object BricsAutomaton {
   private def toBAutomaton(aut : Automaton) : BAutomaton = aut match {
@@ -70,6 +64,131 @@ object BricsAutomaton {
    */
   def makeAnyString() : BricsAutomaton =
       new BricsAutomaton(BAutomaton.makeAnyString)
+  // huzi add -------------------------------------------
+  /**
+    * concatenate
+    */
+  def concat(auts : List[BAutomaton]) : Automaton = {
+    val aut = BasicOperations.concatenate(auts.asJava)
+    aut.minimize()
+    aut.restoreInvariant
+    new BricsAutomaton(aut)
+  }
+
+  // get product of auts whose registers is NULL
+  def productSpecially(auts: Seq[Automaton]) : BricsAutomaton = {
+    new BricsAutomaton(toBAutomaton(auts.reduceLeft(_ & _)))
+  }
+
+  val MaxSimultaneousProduct = 5
+
+  def product(auts : Seq[BricsAutomaton]) : BricsAutomaton = {
+    if (auts.size == 0)
+      return (BricsAutomaton.makeAnyString)
+
+    if (auts.size == 1)
+      return auts.head
+
+    val firstSlice = auts.grouped(MaxSimultaneousProduct)
+                         .map(fullProduct(_))
+                         .toSeq
+
+    if (firstSlice.size == 1)
+      return firstSlice(0)
+    else
+      return product(firstSlice)
+  }
+
+  def fullProduct(auts : Seq[BricsAutomaton]) : BricsAutomaton = {
+    val head = auts.head
+    val builder = head.getBuilder
+
+    val registers  = auts.flatMap(_.registers).toList
+
+    val initState = builder.initialState
+    // from new states to list of old 
+    val sMap = new MHashMap[head.State, List[Any]]
+    // from list of old to new states
+    val sMapRev = new MHashMap[List[Any], head.State]
+
+    val initStates = (auts.map(_.initialState)).toList
+    sMap += initState -> initStates
+    sMapRev += initStates -> initState
+
+    val worklist = new MStack[(head.State, List[Any])]
+    worklist push ((initState, initStates))
+
+    val seenlist = MHashSet[List[Any]]()
+    seenlist += initStates
+
+    builder.setAccept(initState,
+                      auts forall { aut => aut.isAccept(aut.initialState) })
+
+        var checkCnt = 0
+
+    while (!worklist.isEmpty) {
+      val (ps, ss) = worklist.pop()
+
+      // collects transitions from (s, ss)
+      // lbl = (min, max) is current range
+      // vector is current vector
+      // sp and ssp are s' and ss' (ss' is reversed for efficiency)
+      // ss are elements of ss from which a transition is yet to be
+      // searched
+      def addTransitions(lbl : head.TLabel,
+                         vector : List[Int],
+                         ssp : List[Any],
+                         remAuts : List[BricsAutomaton],
+                         ss : List[Any]) : Unit = {
+        checkCnt = checkCnt + 1
+        if (checkCnt % 1000 == 0)
+          ap.util.Timeout.check
+        ss match {
+          case Seq() =>  {
+            val nextState = ssp.reverse
+            if (!seenlist.contains(nextState)) {
+                val nextPState = builder.getNewState
+                val isAccept = (auts.iterator zip nextState.iterator) forall {
+                  case (aut, s) => aut.isAccept(s.asInstanceOf[aut.State])
+                }
+                builder.setAccept(nextPState, isAccept)
+                sMap += nextPState -> nextState
+                sMapRev += nextState -> nextPState
+                worklist.push((nextPState, nextState))
+                seenlist += nextState
+            }
+            val nextPState = sMapRev(nextState)
+            // add vector
+            builder.addTransition(ps, lbl, nextPState, vector)
+          }
+          case _state :: ssTail => {
+            val aut :: autsTail = remAuts
+            val state = _state.asInstanceOf[aut.State]
+
+            aut.outgoingTransitions(state) foreach {
+              case (s, nextLbl) => {
+                val newLbl =
+                    builder.LabelOps.intersectLabels(lbl,
+                                                     nextLbl.asInstanceOf[head.TLabel])
+                  // this sort maybe wrong
+                val vect = vector ::: aut.etaMap((state, nextLbl, s))
+                for (l <- newLbl)
+                  addTransitions(l, vect, s::ssp, autsTail, ssTail)
+              }
+            }
+          }
+        }
+      }
+
+      addTransitions(builder.LabelOps.sigmaLabel, List(), List(), auts.toList, ss)
+    }
+
+    val res = builder.getAutomaton
+    res.addEtaMaps(builder.etaMap)
+    res.setRegisters(registers)
+// have not removeDeadTranstions
+    res
+  }
 }
 
 object BricsTLabelOps extends TLabelOps[(Char, Char)] {
@@ -140,6 +259,7 @@ object BricsTLabelOps extends TLabelOps[(Char, Char)] {
       Seq(lbl)
     }
   }
+
 
   /**
    * Shift characters by n, do not wrap.  E.g. [1,2].shift 3 = [4,5]
@@ -288,6 +408,249 @@ class BricsAutomaton(val underlying : BAutomaton) extends AtomicStateAutomaton {
 
   override def toString : String = underlying.toString
 
+  // hu zi add ---------------------------------------------------------------------------------------------------------------
+//  val registers : ArrayBuffer[ITerm]= ArrayBuffer()  // or maybe ArrayBuffer[ConstantTerm]
+  // registers += AllocRegisterTerm()  //debug
+  // (q', σ, q, η) tuple, stored as a map
+  val etaMap = new MHashMap[(State, TLabel, State), List[Int]]
+
+  addEtaMapsDefault
+
+  /**
+   * get parikh iamge of BricsAutomaton
+   */
+  import ap.terfor.{Formula, Term, TerForConvenience, TermOrder, OneTerm}
+  import scala.collection.mutable.{BitSet => MBitSet,
+                                   HashMap => MHashMap, HashSet => MHashSet,
+                                   ArrayStack}
+  import ap.terfor.linearcombination.LinearCombination
+  import ap.terfor.conjunctions.{Conjunction, ReduceWithConjunction}
+  import ap.basetypes.IdealInt
+  import ap.PresburgerTools
+
+  override def parikhImage : Formula = Exploration.measure("length abstraction") {
+    import TerForConvenience._
+    
+    val constantSeq = registers.map{case IConstant(c) => c}
+    implicit val order = TermOrder.EMPTY.extend(constantSeq)
+
+    // val a = registers.map(InputAbsy2Internal(_,TermOrder.EMPTY)).toSeq
+
+    val stateSeq = states.toIndexedSeq
+    val state2Index = stateSeq.iterator.zipWithIndex.toMap
+
+    lazy val preStates = {
+      val preStates = Array.fill(stateSeq.size)(new ArrayBuffer[(Int, List[Int])])
+
+      for ((from, label, to) <- transitions){
+        val vector = etaMap((from, label, to))
+        preStates(state2Index(to)) += ((state2Index(from), vector))
+      }
+
+      preStates
+    }
+    lazy val transPreStates = {
+      val transPreStates = Array.fill(stateSeq.size)(new MBitSet)
+
+      // transPreStates clone from preStates
+      for ((array, s2) <- preStates.iterator zip transPreStates.iterator)
+        for((s1 , _) <- array)
+          s2 += s1
+
+      for ((s, n) <- transPreStates.iterator.zipWithIndex)
+        s += n
+
+      var changed = true
+      while (changed) {
+        changed = false
+
+        for (i <- 0 until transPreStates.size) {
+          val set = transPreStates(i)
+
+          val oldSize = set.size
+          for (j <- 0 until transPreStates.size)
+            if (set contains j)
+              set |= transPreStates(j)
+
+          if (set.size > oldSize)
+            changed = true
+        }
+      }
+
+      transPreStates
+    }  
+    val initialStateInd = state2Index(initialState)
+
+    ////////////////////////////////////////////////////////////////////////////
+
+    // disjunction of formulas
+    disjFor(for (finalState <- acceptingStates)
+            yield  {
+      val finalStateInd = state2Index(finalState)
+      val refStates = transPreStates(finalStateInd)
+
+      val productions : List[(Int, Option[Int], List[Int])] =
+        (if (refStates contains initialStateInd)
+           List((initialStateInd, None, List()))
+         else List()) :::
+        (for (state <- refStates.iterator;
+              preState <- preStates(state))
+         yield (state, Some(preState._1), preState._2)).toList
+
+      val (prodVars, zVars, sizeVar) = {
+        val prodVars = for ((_, num) <- productions.zipWithIndex) yield v(num)
+        var nextVar = prodVars.size
+        val zVars = (for (state <- refStates.iterator) yield {
+          val ind = nextVar
+          nextVar = nextVar + 1
+          state -> v(ind)
+        }).toMap
+        (prodVars, zVars, v(nextVar))
+      }
+
+      // equations relating the production counters
+      // consistent
+      val prodEqs =
+        (for (state <- refStates.iterator) yield {
+          LinearCombination(
+             (if (state == finalStateInd)
+                Iterator((IdealInt.ONE, OneTerm))
+              else
+                Iterator.empty) ++
+            
+                (for (((to, from, _), prodVar) <-
+                         productions.iterator zip prodVars.iterator;
+                       mult = (if (from contains state) 1 else 0) -
+                              (if (to == state) 1 else 0))
+                 yield (IdealInt(mult), prodVar)),
+             order)
+        }).toList
+
+      // registers
+      val rEqs =
+        (for((r,i) <- registers.zipWithIndex) yield {
+          LinearCombination(
+            Iterator((IdealInt.MINUS_ONE, InputAbsy2Internal(r,order)))
+            ++
+            (for(((_, from, vector), prodVar) <- productions.iterator zip prodVars.iterator 
+             
+              if from != None )
+              yield {(IdealInt(vector(i)), prodVar)}),
+          order)
+        }).toList
+
+      val entryZEq =
+        zVars(finalStateInd) - 1
+
+      val allEqs = eqZ(entryZEq :: prodEqs ::: rEqs)
+
+      val prodNonNeg =
+        prodVars >= 0
+
+      val prodImps =
+        (for (((to, _, _), prodVar) <-
+                productions.iterator zip prodVars.iterator;
+              if to != finalStateInd)
+         yield ((prodVar === 0) | (zVars(to) > 0))).toList
+
+      // connective
+      val zImps =
+        (for (state <- refStates.iterator; if state != finalStateInd) yield {
+           disjFor(Iterator(zVars(state) === 0) ++
+                   (for (((to, from, _), prodVar) <-
+                           productions.iterator zip prodVars.iterator;
+                         if from contains state)
+                    yield conj(zVars(state) === zVars(to) + 1,
+                               geqZ(List(prodVar - 1, zVars(to) - 1)))))
+         }).toList
+
+      val matrix =
+        conj(allEqs :: prodNonNeg :: prodImps ::: zImps)
+      val rawConstraint =
+        exists(prodVars.size + zVars.size, matrix)
+
+      val constraint =
+        ap.util.Timeout.withTimeoutMillis(1000) {
+          // best-effort attempt to get a quantifier-free version of the
+          // length abstraction
+          PresburgerTools.elimQuantifiersWithPreds(rawConstraint)
+        } {
+          ReduceWithConjunction(Conjunction.TRUE, order)(rawConstraint)
+        }
+
+      constraint
+    })
+  }
+  
+  /**
+   * addEtaMap, vector.length must equal to registers.length
+   */
+  def addEtaMap(transition : (State, TLabel, State), vector : List[Int]) : Unit = {
+    etaMap += (transition -> vector)
+  }
+
+
+  /**
+   * addEtaMaps, input is a hashmap
+   */
+  def addEtaMaps(map : MHashMap[(State, TLabel, State), List[Int]]) : Unit = {
+    etaMap ++= map
+  }
+
+  /**
+   * addEtaMapDefault, the default vector is considered to be 0 
+   */
+  def addEtaMapDefault(transition : (State, TLabel, State)) : Unit = {
+    val vector = List.fill(registers.length)(0)
+    addEtaMap(transition, vector)
+  }
+
+  /**
+   * addEtaMapsDefault
+   */
+  def addEtaMapsDefault() : Unit = {
+    for((s1, l, s2) <- this.transitions){
+      addEtaMapDefault((s1, l, s2))
+    }
+  }
+  val debugTransitions = {
+    (for((s1,l,s2) <- this.transitions) yield (s1, l, s2)).toList
+  }
+  /**
+   * register op:
+   */
+  def addNewRegister(num : Int): Unit = {
+    for(i <- 1 to num)
+      registers += AllocRegisterTerm()
+  }
+  def addRegisters(rs : ArrayBuffer[ITerm]): Unit = {
+    registers ++= rs
+  }  
+  def setRegisters (rs : ArrayBuffer[ITerm]): Unit = {
+    registers.clear()
+    registers ++= rs
+  }
+  def setRegisters (rs : List[ITerm]): Unit = {
+    registers.clear()
+    registers ++= rs
+  }
+  /**
+   * cloneRegisters : clone register, use the different token
+   */
+  def cloneRegisters(): ArrayBuffer[ITerm]  = {
+    val res : ArrayBuffer[ITerm]= ArrayBuffer()
+    for(i<-registers){
+      res += AllocRegisterTerm()
+    }
+    res
+  }
+
+  def removeDeadTranstions() : Unit = {
+
+  }
+
+  // hu zi add ------------------------------------------------------------------------------------------------------
+
   /**
    * Union
    */
@@ -307,6 +670,7 @@ class BricsAutomaton(val underlying : BAutomaton) extends AtomicStateAutomaton {
    */
   def unary_! : Automaton =
     new BricsAutomaton(BasicOperations.complement(this.underlying))
+
 
   /**
    * Check whether this automaton describes the empty language.
@@ -367,27 +731,7 @@ class BricsAutomaton(val underlying : BAutomaton) extends AtomicStateAutomaton {
     val outgoing = new MLinkedHashSet[(State, TLabel)]
 
     for (lbl <- dests.keys.toList.sorted) {
-
-      def sortingFn(s1 : State, s2 : State) : Boolean = {
-        // sort by lowest outgoing transition
-        for ((t1, t2) <- s1.getSortedTransitions(false)
-                         zip
-                         s2.getSortedTransitions(false)) {
-          import scala.math.Ordering.Implicits._
-          val lbl1 = (t1.getMin, t1.getMax)
-          val lbl2 = (t2.getMin, t2.getMax)
-          if (lbl1 < lbl2)
-            return true
-          else if (lbl2 < lbl1)
-            return false
-        }
-        // if all else fails, make an arbitrary choice
-        return true
-      }
-
-      val sortedDests = dests(lbl).toList.sortWith(sortingFn)
-
-      for (s <- sortedDests) {
+      for (s <- dests(lbl)) {
         outgoing += ((s, lbl))
       }
     }
@@ -440,6 +784,9 @@ class BricsAutomatonBuilder
     baut
   }
 
+  val etaMap = new MHashMap[(BricsAutomaton#State, BricsAutomaton#TLabel, 
+                              BricsAutomaton#State), List[Int]]
+
   /**
    * The initial state of the automaton being built
    */
@@ -474,6 +821,18 @@ class BricsAutomatonBuilder
     }
   }
 
+  // huzi add-----------------------------------------
+  def addTransition(q1 : BricsAutomaton#State,
+                    label : BricsAutomaton#TLabel,
+                    q2 : BricsAutomaton#State,
+                    vector : List[Int] ) : Unit = {
+    if (LabelOps.isNonEmptyLabel(label)) {
+      val (min, max) = label
+      q1.addTransition(new Transition(min, max, q2))
+      etaMap += ((q1, (min, max), q2)->vector)
+    }
+  }
+
   def outgoingTransitions(q : BricsAutomaton#State)
         : Iterator[(BricsAutomaton#State, BricsAutomaton#TLabel)] =
     for (t <- q.getTransitions.iterator)
@@ -489,9 +848,6 @@ class BricsAutomatonBuilder
    * automaton cannot change
    */
   def getAutomaton : BricsAutomaton = {
-    baut.restoreInvariant
-    if (minimize)
-      baut.minimize
     new BricsAutomaton(baut)
   }
 }

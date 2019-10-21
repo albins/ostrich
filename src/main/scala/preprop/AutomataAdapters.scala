@@ -18,11 +18,12 @@
 
 package strsolver.preprop
 
-import scala.collection.mutable.{HashMap => MHashMap, ArrayStack,
-                                 HashSet => MHashSet, MultiMap,
-                                 LinkedHashSet => MLinkedHashSet,
-                                 Set => MSet}
+import ap.parser.ITerm
+
+import scala.collection.mutable.{ArrayBuffer, ArrayStack, MultiMap, HashMap => MHashMap, HashSet => MHashSet, LinkedHashSet => MLinkedHashSet, Set => MSet}
 import scala.collection.{Set => GSet}
+import dk.brics.automaton.{State => BState}
+
 
 object AtomicStateAutomatonAdapter {
   def intern(a : Automaton) : Automaton = a match {
@@ -101,23 +102,42 @@ abstract class AtomicStateAutomatonAdapter[A <: AtomicStateAutomaton]
     bwdReachable
   }
 
-  def internalise : AtomicStateAutomaton = {
-    val builder = underlying.getBuilder
-    val smap = new MHashMap[underlying.State, underlying.State]
+  def internalise : AtomicStateAutomaton = underlying match {
+    // hu zi add -------------------------------------------------------------
+    case a : BricsAutomaton => {
+      type Transition = (BricsAutomaton#State, BricsAutomaton#TLabel, BricsAutomaton#State)
+      val builder = underlying.getBuilder
+      val smap = new MHashMap[underlying.State, underlying.State]
+      val etaMap = new MHashMap[Transition, List[Int]]
 
-    for (s <- states)
-      smap.put(s, builder.getNewState)
+      for (s <- states)
+        smap.put(s, builder.getNewState)
 
-    for (s <- states) {
-      val t = smap(s)
-      for ((to, label) <- outgoingTransitions(s))
-        builder.addTransition(t, label, smap(to))
-      builder.setAccept(t, isAccept(s))
+      for (s <- states) {
+        val t = smap(s)
+        for ((to, label) <- outgoingTransitions(s)){
+          val transition = (s.asInstanceOf[BricsAutomaton#State], 
+            label.asInstanceOf[BricsAutomaton#TLabel], 
+            to.asInstanceOf[BricsAutomaton#State])
+          val vector = a.etaMap(transition)
+
+          builder.addTransition(t, label, smap(to))
+          val builderTransition = (t.asInstanceOf[BricsAutomaton#State],
+            label.asInstanceOf[BricsAutomaton#TLabel],
+            smap(to).asInstanceOf[BricsAutomaton#State])
+          etaMap += (builderTransition -> vector)
+        }
+        builder.setAccept(t, isAccept(s))
+      }
+
+      builder.setInitialState(smap(initialState))
+
+      val res = builder.getAutomaton
+      res.asInstanceOf[BricsAutomaton].addEtaMaps(etaMap) 
+      res.asInstanceOf[BricsAutomaton].setRegisters(registers)
+      res
     }
-
-    builder.setInitialState(smap(initialState))
-
-    builder.getAutomaton
+    // hu zi add -------------------------------------------------------------
   }
 
   def getTransducerBuilder : TransducerBuilder[State, TLabel] =
@@ -141,6 +161,9 @@ abstract class AtomicStateAutomatonAdapter[A <: AtomicStateAutomaton]
 
   def outgoingTransitions(from : State) : Iterator[(State, TLabel)] =
     underlying.outgoingTransitions(from)
+
+  // huzi add
+  override val registers = underlying.registers
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -181,6 +204,8 @@ object InitFinalAutomaton {
     }
 }
 
+
+
 /**
  * Representation of automaton with initial and final states changed
  *
@@ -208,6 +233,9 @@ case class _InitFinalAutomaton[A <: AtomicStateAutomaton]
          if _states contains s)
     yield p
   }
+  // huzi add
+  override val registers = _underlying.asInstanceOf[BricsAutomaton].cloneRegisters
+
 }
 
 /**
@@ -252,6 +280,7 @@ case class PreImageAutomaton[A <: AtomicStateAutomaton]
                              targ : A,
                              internal : Iterable[(A#State, A#State)])
     extends AtomicStateAutomatonAdapter[AtomicStateAutomaton](
+    // extends AtomicStateAutomatonAdapter[A](
       tran.preImage(targ, internal)
     ) { }
 
@@ -263,6 +292,7 @@ case class PostImageAutomaton[A <: AtomicStateAutomaton]
                               tran : Transducer,
                               internalAut : Option[A] = None)
     extends AtomicStateAutomatonAdapter[AtomicStateAutomaton](
+    // extends AtomicStateAutomatonAdapter[A](
       tran.postImage(inAut, internalAut)
     ) { }
 
@@ -273,6 +303,7 @@ case class ReverseAutomaton(aut : AtomicStateAutomaton)
     extends AtomicStateAutomatonAdapter[AtomicStateAutomaton](
       AutomataUtils.reverse(aut)
     ) { }
+
 
 /**
  * Case class representation of AutomataUtils.reverse
@@ -294,3 +325,12 @@ case class NestedAutomaton(inner: AtomicStateAutomaton,
     ) { }
 
 
+// huzi add ----------------------------------------------------------------------
+/**
+ * Case class representation of AutomataUtils.reverse
+ */
+case class ReverseBAutomaton(aut : BricsAutomaton)
+    extends AtomicStateAutomatonAdapter[BricsAutomaton](
+      AutomataUtils.reverse(aut)
+    ) { }
+// huzi add ----------------------------------------------------------------------

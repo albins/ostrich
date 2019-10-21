@@ -34,23 +34,7 @@ class Regex2AFA(atoms : PredConj) {
   private def numToUnicode(num : Int) : String =
     new String(Character.toChars(num))
 
-  def buildAFA(c : Term) : AFA = {
-    val aut = buildBricsAut(c)
-//    println(aut)
-    brics2AFA(aut)
-  }
-
-  def buildComplAFA(c : Term) : AFA = {
-    val aut = buildBricsAut(c)
-//    println(aut)
-//    println("Complementing ...")
-    val complAut = BasicOperations complement aut
-//    println(complAut)
-    brics2AFA(complAut)
-  }
-
-  //////////////////////////////////////////////////////////////////////////////
-
+  // build regex string in brics format for term c
   def buildRegex(c : Term) : String =
     (for (a <- atoms positiveLitsWithPred p(rexEmpty); if (a(0) == c))
      yield "#").headOption orElse
@@ -106,67 +90,9 @@ class Regex2AFA(atoms : PredConj) {
       Iterator single List(Right(c))
   }
 
-  /**
-   * Convert a concrete string (possibly including word variables)
-   * to an AFA. A word variable is simply interpreted as representing
-   * arbitrary words, ignoring further constraints that might exist
-   * on the variable.
-   */
-  def string2AFA(string : List[Either[Int, Term]]) : AFA = {
-    val stateFors = new ArrayBuffer[AFormula]
-    for (el <- string) el match {
-      case Left(char) =>
-        stateFors +=
-          AFStateVar(stateFors.size + 1) & ~AFSpecSymb(0) & AFormula.createSymbol(char, 0)
-      case Right(v) =>
-        stateFors +=
-          AFStateVar(stateFors.size) | AFStateVar(stateFors.size + 1)
-    }
-    stateFors += AFFalse
-    val finalStates = AFormula.and(for (n <- 0 until (stateFors.size - 1))
-                                   yield ~AFStateVar(n))
-    new AFA(AFStateVar(0), stateFors.toVector, finalStates)
-  }
-
-  def extractEqConstraints(x : Term) : Option[AFA] = {
-    val allStrings =
-      for (s <- buildStrings(x); if s != List(Right(x))) yield s
-    if (allStrings.hasNext)
-      Some((for (s <- allStrings) yield string2AFA(s)) reduceLeft
-           (AFA.synchronise(_, _, 0)))
-    else
-      None
-  }
-
-  //////////////////////////////////////////////////////////////////////////////
 
   def buildBricsAut(c : Term) : Automaton =
     new RegExp(buildRegex(c)).toAutomaton
-
-  private def brics2AFA(aut : Automaton) : AFA = {
-    val initState = aut.getInitialState
-    val states = initState :: (aut.getStates.asScala - initState).toList
-    val stateInd = states.iterator.zipWithIndex.toMap
-
-    val transFors = for (state <- states) yield AFormula.or(
-      for (trans <-
-             (state getSortedTransitions false).iterator.asScala) yield {
-        val targetConstr = AFStateVar(stateInd(trans.getDest))
-        val labelConstr =
-          if (trans.getMin == trans.getMax)
-            ~AFSpecSymb(0) & AFormula.createSymbol(trans.getMin, 0)
-          else
-            ~AFSpecSymb(0) & AFormula.symbolInRange(trans.getMin, trans.getMax)
-        targetConstr & labelConstr
-    })
-
-    val finalStates =
-      AFormula.and(for ((state, num) <- states.iterator.zipWithIndex;
-                        if !state.isAccept)
-                   yield ~AFStateVar(num))
-
-    new AFA(AFStateVar(0), transFors.toVector, finalStates)
-  }
 
 
 }

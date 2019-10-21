@@ -74,8 +74,9 @@ object UserFunctionRegistry {
   //////////////////////////////////////////////////////////////////
   // Load from UserFunctions
 
-  for ((n, a, p) <- UserFunctions.functions)
+  for ((n, a, p) <- UserFunctions.functions){
     registerFunction(n, a, p)
+  }
 
   val stringTheoryFuns : Iterable[IFunction] = strFuns.values
 

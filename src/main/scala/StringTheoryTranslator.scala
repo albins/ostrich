@@ -161,7 +161,6 @@ class StringTheoryTranslator private (constraint : IFormula,
         a === b,
         ctxt)
     }
-
     case IAtom(SMTLIBPred(`seq_unit`), _) =>
       IAtom(toPred(StringTheory.wordChar), toTermSeq(subres))
     case IAtom(SMTLIBPred(`seq_empty`), _) =>
@@ -263,25 +262,25 @@ class StringTheoryTranslator private (constraint : IFormula,
     }
 
     case IAtom(SMTLIBPred(`seq_extract`), _) => {
-      val Seq(full, lo, hi, res) = toTermSeq(subres)
-      val pref, substr, b, c, prefLen, substrLen, fullLen = newConstant
-      guardedExpr(toPred(StringTheory.wordCat)(substr, b, c) &
-        toPred(StringTheory.wordCat)(pref, c, full) &
-        toPred(StringTheory.wordLen)(pref, prefLen) &
-        toPred(StringTheory.wordLen)(substr, substrLen) &
-        toPred(StringTheory.wordLen)(full, fullLen) &
-        ((lo >= 0) ==>
-          ((prefLen <= lo) & (prefLen <= fullLen) &
-            ((prefLen === lo) | (prefLen === fullLen)))) &
-        ((lo < 0) ==> (prefLen === 0)) &
-        (((hi >= lo) & (hi >= 0)) ==>
-          ((prefLen + substrLen <= hi) &
-            ((prefLen + substrLen === hi) |
-              (prefLen + substrLen === fullLen)))) &
-        (((hi < lo) | (hi < 0)) ==> (substrLen === 0)),
-        substr === res,
-        ctxt)
+    // hu zi modify and add --------------------------------------------------------------
+      IAtom(toPred(StringTheory.substring), toTermSeq(subres))
     }
+    case IAtom(SMTLIBPred(`seq_indexof`), _) => {
+      IAtom(toPred(StringTheory.indexof), toTermSeq(subres))
+    }
+    case IAtom(`smtparse_contains`, _) => {
+      // println("StringTheoryTranslator contains")
+      IAtom(StringTheory.str_contains, toTermSeq(subres))
+    }
+    case IAtom(`smtparse_prefixof`, _) => {
+      // println("StringTheoryTranslator contains")
+      IAtom(StringTheory.str_prefixof, toTermSeq(subres))
+    }    
+    case IAtom(SMTLIBPred(`smtparse_at`), _) => {
+       // println("StringTheoryTranslator at")
+      IAtom(toPred(StringTheory.str_at), toTermSeq(subres))
+    }    
+    // hu zi add -------------------------------------------------------------------------
 
     case IAtom(SMTLIBPred(`seq_length`), _) =>
       IAtom(toPred(StringTheory.wordLen), toTermSeq(subres))
@@ -416,6 +415,13 @@ class StringTheoryTranslator private (constraint : IFormula,
           case c : IConstant => wordVariables += c
           case _ => // nothing
         }
+//huzi add-----------------------------
+      case IAtom(StringPred(StringTheory.indexof), args) =>
+        for (c <- args) c match {
+          case c : IConstant => wordVariables += c
+          case _ => 
+        }
+//huzi add-----------------------------
       case IAtom(StringPred(StringTheory.replaceallre), args) =>
         for (c <- Iterator(args(0), args(2))) c match {
           case c : IConstant => wordVariables += c

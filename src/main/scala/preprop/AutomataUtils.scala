@@ -21,6 +21,7 @@ package strsolver.preprop
 import scala.collection.mutable.{HashSet => MHashSet, ArrayStack,
                                  Stack => MStack, HashMap => MHashMap,
                                  MultiMap, ArrayBuffer, Set => MSet}
+// import dk.brics.automaton.{Transition, State}
 
 /**
  * Collection of useful functions for automata
@@ -218,6 +219,7 @@ object AutomataUtils {
    */
   def productWithMap(auts : Seq[AtomicStateAutomaton], minimize : Boolean = false) :
     (AtomicStateAutomaton, Map[Any, Seq[Any]]) = {
+    // 空Map[Any, Seq[Any]]
     val idMap = Map[Any, Seq[Any]]().withDefault(s => Seq(s))
     productWithMaps(auts.map((_, idMap)), minimize)
   }
@@ -411,6 +413,49 @@ object AutomataUtils {
     builder.getAutomaton
   }
 
+  // hu zi add ------------------------------------------------------------
+  /**
+   *  Build BricsAutomaton accepting reverse language of given automaton:
+   *  
+   *  Given an INCRA A = (Σ, Q, I, F, R, δ), the inverse of A, denoted by
+   *  A(r), is (Σ, Q, F, I, R, δ') where δ' comprises the tuples 
+   *   (q', σ, q, η) such that (q, σ, q', η) ∈ δ
+   */
+  def reverse(aut : BricsAutomaton) : BricsAutomaton = {
+    val builder = aut.getBuilder
+    val etaMap = new MHashMap[(aut.State, aut.TLabel, aut.State), List[Int]]
+
+    val smap : Map[aut.State, aut.State] =
+      aut.states.map(s => (s -> builder.getNewState))(collection.breakOut)
+
+    val initState = builder.initialState
+    builder.setAccept(smap(aut.initialState), true)
+
+    val autAccept = aut.acceptingStates
+    for ((s1, l, s2) <- aut.transitions) {
+        val vector = aut.etaMap((s1, l, s2))
+
+      if (autAccept contains s2){
+        builder.addTransition(initState, l, smap(s1))
+        //construct (q', σ, q, η) tuple 
+        //(q', σ, q, η)∈ δ' such that (q, σ, q', η) ∈ δ
+        etaMap += ((initState, l, smap(s1)) -> vector)
+      }
+      builder.addTransition(smap(s2), l, smap(s1))
+      //construct (q', σ, q, η) tuple 
+      //(q', σ, q, η)∈ δ' such that (q, σ, q', η) ∈ δ
+      etaMap += ((smap(s2), l, smap(s1)) -> vector)
+    }
+
+    val res = builder.getAutomaton
+    // add (q', σ, q, η) tuple
+    res.addEtaMaps(etaMap)
+    res.addRegisters(aut.registers)
+    res
+  }    
+  // hu zi add ------------------------------------------------------------
+  
+
   /**
    * Build automaton accepting concat language of given automata
    * aut1 and aut2 must have compatible label types
@@ -544,6 +589,52 @@ object AutomataUtils {
 
       for ((ps3, lbl) <- builder.outgoingTransitions(ps2)) {
         builder.addTransition(ps1, lbl, ps3)
+      }
+    }
+  }
+
+
+// huzi add---------------------------------------------------------------------------------
+def buildEpsilons[State, TLabel](builder : AtomicStateAutomatonBuilder[State, TLabel],
+                                   epsilons : MultiMap[State, (State,List[Int])], 
+                                   isAddEtaMap : Boolean ) : Unit = {
+    // transitive closes (modifies in place) the map representing a list
+    // of pairs (x, y)
+    if(!builder.isInstanceOf[BricsAutomatonBuilder])
+      throw new Exception("builder is not a BricsAutomatonBuilder")
+    def tranClose[A](pairs : MultiMap[A, (A,List[Int])]) : MultiMap[A, (A,List[Int])] = {
+      val worklist = new MStack[(A, (A,List[Int]))]
+      val closure = new MHashMap[A, MSet[(A,List[Int])]] with MultiMap[A, (A,List[Int])]
+
+      for ((x, ys) <- pairs; y <- ys) {
+        worklist.push((x, y))
+        closure.addBinding(x, y)
+      }
+
+      while (!worklist.isEmpty) {
+        val (x, y) = worklist.pop
+        for (z <- pairs.getOrElse(y._1, List()); if !closure(x).contains(z)) {
+          closure.addBinding(x, z)
+          worklist.push((x, z))
+        }
+      }
+
+      closure
+    }
+    val etaMap = new MHashMap[(BricsAutomaton#State, BricsAutomaton#TLabel, 
+                              BricsAutomaton#State), List[Int]]
+
+    val closure = tranClose(epsilons)
+    for ((ps1, ps2s) <- closure; (ps2,v) <- ps2s; if (ps1 != ps2)) {
+      if (builder.isAccept(ps2))
+        builder.setAccept(ps1, true)
+
+      for ((ps3, lbl) <- builder.outgoingTransitions(ps2)) {
+        builder.asInstanceOf[BricsAutomatonBuilder]
+        .addTransition(ps1.asInstanceOf[BricsAutomaton#State], 
+                      lbl.asInstanceOf[BricsAutomaton#TLabel], 
+                      ps3.asInstanceOf[BricsAutomaton#State], 
+                      v)
       }
     }
   }
