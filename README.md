@@ -14,4 +14,4 @@ $ sbt assembly
 
 Run the jar with arguement
 --------------------------
-java -jar [-timeout=num] ostrich-assembly-1.0.jar testfile
+java -jar  ostrich-assembly-1.0.jar [-timeout=num] testfile
