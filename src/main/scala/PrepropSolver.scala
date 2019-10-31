@@ -60,7 +60,8 @@ class PrepropSolver {
 
     val containsLength = !(atoms positiveLitsWithPred p(wordLen)).isEmpty || 
                          !(atoms positiveLitsWithPred p(substring)).isEmpty ||
-                         !(atoms positiveLitsWithPred p(indexof)).isEmpty
+                         !(atoms positiveLitsWithPred p(indexof)).isEmpty ||
+                         !(atoms positiveLitsWithPred p(str_at)).isEmpty
    // all constant term in atoms, store their value in Seq[Int]
     val concreteWords = new MHashMap[Term, Seq[Int]]
     findConcreteWords(atoms) match {
@@ -219,7 +220,7 @@ class PrepropSolver {
         intFunApps += ((IndexOfPreOp(u, Internal2InputAbsy(a(3)), Internal2InputAbsy(a(2))), List(a(0)), a(3)))
       }
       case FunPred(`str_at`) => {
-        funApps += ((SubStringPreOp(a(1), a(1)), List(a(0), a(1), a(1)), a(2)))
+        funApps += ((SubStringPreOp(a(1), a(1)+1), List(a(0), a(1), a(1)+1), a(2)))
       }
 
       // hu zi add -------------------------------------------------------------------

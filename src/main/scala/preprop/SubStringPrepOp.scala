@@ -65,7 +65,7 @@ class SubStringPreOp(i : Term, j : Term) extends PreOp{
     res.addNewRegister(2)   // i,j
     res.addRegisters(resAut.registers)  // New registers is (i, j)++resAut.registers
     a.addFormula(res.registers(0) === input_i)
-    a.addFormula(res.registers(1) === input_j)
+    a.addFormula(res.registers(1) === input_j-1)  // for python , s[1:3] do not contain s[3]
 
     (Iterator((Seq(res), a)), List())
   }
@@ -82,7 +82,7 @@ class SubStringPreOp(i : Term, j : Term) extends PreOp{
       if(i_value < 0 || j_value > strLen-1)
         return None
 
-      return Some(arguments(0).slice(i_value, j_value+1))
+      return Some(arguments(0).slice(i_value, j_value))
 
     }
  	override def toString = "substring{"+i.toString+","+j.toString+"}"
