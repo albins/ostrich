@@ -269,16 +269,30 @@ class StringTheoryTranslator private (constraint : IFormula,
       IAtom(toPred(StringTheory.indexof), toTermSeq(subres))
     }
     case IAtom(`smtparse_contains`, _) => {
-      // println("StringTheoryTranslator contains")
       IAtom(StringTheory.str_contains, toTermSeq(subres))
     }
     case IAtom(`smtparse_prefixof`, _) => {
-      // println("StringTheoryTranslator contains")
       IAtom(StringTheory.str_prefixof, toTermSeq(subres))
     }    
     case IAtom(SMTLIBPred(`smtparse_at`), _) => {
-       // println("StringTheoryTranslator at")
+      // two different implementation:
+      // 1. convert str.at to str.substr
       IAtom(toPred(StringTheory.str_at), toTermSeq(subres))
+      // 2. covert str.at to len and cat
+      // val Seq(full, index, res) = toTermSeq(subres)
+      // val pref, substr, b, c, prefLen, substrLen, fullLen = newConstant
+      // guardedExpr(toPred(StringTheory.wordCat)(substr, b, c) &
+      //   toPred(StringTheory.wordCat)(pref, c, full) &
+      //   toPred(StringTheory.wordLen)(pref, prefLen) &
+      //   toPred(StringTheory.wordLen)(substr, substrLen) &
+      //   toPred(StringTheory.wordLen)(full, fullLen) &
+      //   ((index >= 0) ==>
+      //     ((prefLen <= fullLen) &
+      //       (prefLen === index) &
+      //         (substrLen === 1))) &
+      //   ((index < 0) ==> (prefLen === 0)) ,
+      //   substr === res,
+      //   ctxt)
     }    
     // hu zi add -------------------------------------------------------------------------
 

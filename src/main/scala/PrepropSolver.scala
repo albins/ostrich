@@ -28,6 +28,7 @@ import ap.basetypes.IdealInt
 import ap.parser.Internal2InputAbsy
 import ap.terfor.linearcombination.LinearCombination
 import dk.brics.automaton.{RegExp, Automaton => BAutomaton}
+import strsolver.preprop.StoreLC
 
 import scala.collection.breakOut
 import scala.collection.mutable.{ArrayBuffer, HashMap => MHashMap}
@@ -75,6 +76,22 @@ class PrepropSolver {
     val intFunApps = new ArrayBuffer[(PreOp, Seq[Term], Term)]  // length and indexof funciton
     val regexes = new ArrayBuffer[(Term, Automaton)]    // all the res and arg aut
     val lengthVars = new MHashMap[Term, Term]
+    // (res, i, j) store res and two substring int,
+    // to handle "" = substr(x, i, j), j<i. Or fasten unsat substring situation
+    val substrInt = new ArrayBuffer[(Term, Term, Term)]()
+    // for example: 0 = length(x), x = substring(y, i, j), we can just add intconstraints i>=j
+    // we store the term x in buffer zeroLen
+    val zeroLen = new ArrayBuffer[Term]()
+    for(a <- atoms.positiveLits) a.pred match {
+      case FunPred(`substring`) => {
+        substrInt += ((a(3), a(1), a(2)));
+      }
+      case FunPred(`wordLen`) => {
+        if (a(1).isZero)
+          zeroLen += a(0)
+      }
+      case _ =>
+    }
 
     for (a <- atoms.positiveLits) a.pred match {
       case FunPred(`wordChar` | `wordEps`)
@@ -110,7 +127,7 @@ class PrepropSolver {
           println("str.prefix("+a.last+","+str+")")
           val tmpAut = BricsAutomaton.fromString(str)
           val anyStrAut = BAutomaton.makeAnyString
-          regexes += ((a.head, BricsAutomaton.concat(List(tmpAut.underlying, anyStrAut))))
+          regexes += ((a.last, BricsAutomaton.concat(List(tmpAut.underlying, anyStrAut))))
         } else{
           println("str_prefixof not -----------------concreate word")
           println("unknow")
@@ -200,17 +217,23 @@ class PrepropSolver {
       }
       // huzi modify -------------------------------------------------------------------------
       case FunPred(`wordLen`) => {
-        if (a(1).isZero)
-          regexes += ((a(0), BricsAutomaton fromString ""))
-        // hu zi add -------------------------------------------------------------------
-        else{
+        if (a(1).isZero) {
+          // for example: 0 = length(x), x = substring(.., i, j), we can just add intconstraints i>=j
+          // and delete res = substr(.., i, j)
+          // and can not add regex a(0)="" in this case
+          val zeroSub = substrInt.filter { case (res, i, j) => res == a(0) }
+          if (zeroSub.length == 0) 
+            regexes += ((a(0), BricsAutomaton fromString ""))
+        }else{
           intFunApps += ((LengthPreOp(Internal2InputAbsy(a(1))), List(a(0)), a(1)))
         }
-        // hu zi add -------------------------------------------------------------------
       }
       // hu zi add -------------------------------------------------------------------
       case FunPred(`substring`) => {
-        funApps += ((SubStringPreOp(a(1), a(2)), List(a(0), a(1), a(2)), a(3)))
+        if( zeroLen.contains(a(3)) ) {
+          StoreLC.addFormula(Internal2InputAbsy(a(1)) >= Internal2InputAbsy(a(2))) // i>=j
+        }else
+          funApps += ((SubStringPreOp(a(1), a(2)), List(a(0), a(1), a(2)), a(3)))
       }
       case FunPred(`indexof`) => {
         println("handle indexof")
@@ -265,7 +288,7 @@ class PrepropSolver {
           println("str.prefix("+a.last+","+str+")")
           val tmpAut = BricsAutomaton.fromString(str)
           val anyStrAut = BAutomaton.makeAnyString
-          regexes += ((a.head, !BricsAutomaton.concat(List(tmpAut.underlying, anyStrAut))))
+          regexes += ((a.last, !BricsAutomaton.concat(List(tmpAut.underlying, anyStrAut))))
         } else{
           println("str_prefixof not -----------------concreate word")
           println("unknow")

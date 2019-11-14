@@ -26,6 +26,8 @@ class IndexOfPreOp(u : List[Char], i : ITerm, j : ITerm) extends PreOp{
       var min = Char.MinValue
       val charMax = Char.MaxValue
       val charMin = Char.MinValue
+      // val charMax = 127.toChar
+      // val charMin = 0.toChar
 
       if(size == 0){
         res = (charMin, charMax):: res

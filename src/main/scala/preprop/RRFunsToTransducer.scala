@@ -180,6 +180,7 @@ object RRFunsToTransducer {
 
               val lb = lBound getOrElse Char.MinValue
               val ub = uBound getOrElse Char.MaxValue
+              // val ub = uBound getOrElse 127.toChar
 
               if (outPat == IVariable(0))
                 // this means no output is produced

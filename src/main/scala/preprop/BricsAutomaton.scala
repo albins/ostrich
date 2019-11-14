@@ -18,6 +18,8 @@
 
 package strsolver.preprop
 
+import java.io.{FileWriter, PrintWriter}
+
 import strsolver.Regex2AFA
 import ap.terfor.Term
 import ap.terfor.preds.PredConj
@@ -28,6 +30,7 @@ import scala.collection.JavaConversions.{asScalaIterator, iterableAsScalaIterabl
 import scala.collection.mutable.{ArrayBuffer, HashMap => MHashMap, HashSet => MHashSet, LinkedHashSet => MLinkedHashSet, MultiMap => MMultiMap, Set => MSet, Stack => MStack, TreeSet => MTreeSet}
 import scala.collection.immutable.List
 import java.util.{List => JList}
+
 import scala.collection.JavaConverters._
 
 object BricsAutomaton {
@@ -62,8 +65,20 @@ object BricsAutomaton {
   /**
    * A new automaton that accepts any string
    */
-  def makeAnyString() : BricsAutomaton =
-      new BricsAutomaton(BAutomaton.makeAnyString)
+  def makeAnyString() : BricsAutomaton = {
+//      new BricsAutomaton(BAutomaton.makeAnyString)
+    // our sigma is (0, 127), ascii char
+    val builder = new BricsAutomatonBuilder
+    val initState = builder.getNewState
+    val Sigma = builder.LabelOps.sigmaLabel
+    builder.setInitialState(initState)
+    builder.setAccept(initState, true)
+    builder.addTransition(initState, Sigma, initState)
+    builder.getAutomaton
+
+  }
+
+
   // huzi add -------------------------------------------
   /**
     * concatenate
@@ -204,8 +219,13 @@ object BricsTLabelOps extends TLabelOps[(Char, Char)] {
   /**
    * Label accepting all letters
    */
+  // val sigmaLabel : (Char, Char) =
+  //   (Char.MinValue, Char.MaxValue)
+  
+  //huzi modify, ascii char
   val sigmaLabel : (Char, Char) =
     (Char.MinValue, Char.MaxValue)
+
 
   def singleton(a : Char) = (a, a)
 
@@ -649,6 +669,25 @@ class BricsAutomaton(val underlying : BAutomaton) extends AtomicStateAutomaton {
 
   }
 
+  // print this aut
+//  def printAut() : Unit = {
+//    val out = new PrintWriter(new FileWriter("tmp.txt", true))
+//    val statesIndex = states.zipWithIndex.toMap
+//    out.println("#automata:")
+//    out.println("#states: "+states.size)
+//    out.println("#init: "+ statesIndex(initialState))
+//    out.print("#final: ")
+//    acceptingStates.foreach{case state => print(statesIndex(state) + ",")}
+//    out.println()
+//    out.println("#transitons: ")
+//    etaMap.foreach{case ((from, (charmin,charmax), to),vector) =>
+//      out.println(statesIndex(from)+";"+statesIndex(to)+";"+charmin.toInt+";"+charmax.toInt+";"+vector)}
+//    out.print("#register: ")
+//    registers.foreach{case r => out.print(r + ",")}
+//    out.println()
+//    out.close()
+//  }
+
   // hu zi add ------------------------------------------------------------------------------------------------------
 
   /**
@@ -661,9 +700,11 @@ class BricsAutomaton(val underlying : BAutomaton) extends AtomicStateAutomaton {
   /**
    * Intersection
    */
-  def &(that : Automaton) : Automaton =
-    new BricsAutomaton(BasicOperations.intersection(this.underlying,
-                                                    toBAutomaton(that)))
+  def &(that : Automaton) : Automaton = {
+    val productAut = BasicOperations.intersection(this.underlying, toBAutomaton(that))
+    productAut.minimize()
+    new BricsAutomaton(productAut)
+  }
 
   /**
    * Complementation

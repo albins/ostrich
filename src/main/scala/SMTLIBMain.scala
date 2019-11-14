@@ -112,7 +112,7 @@ object SMTLIBMain {
       import SimpleAPI._
       import p._
       import strsolver.preprop.AllocRegisterTerm
-      import strsolver.preprop.StoreLC
+      // import strsolver.preprop.StoreLC
 
       try {
         addTheory(StringTheory)

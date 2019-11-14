@@ -40,8 +40,6 @@ object ConcatPreOp extends PreOp {
          // .states method returns them in a deterministic order (this is
          // true for BricsAutomaton)
 
-         val a = new LinearConstraints
-
          val argLengths =
            (for (argAuts <- argumentConstraints.iterator) yield {
               (for (aut <- argAuts.iterator;
@@ -50,6 +48,7 @@ object ConcatPreOp extends PreOp {
                             .uniqueAcceptedWordLength.iterator)
                yield (aut, l)).toSeq.headOption
             }).toSeq
+
          val b = 1
          argLengths(0) match {
            case Some((lenAut, len)) =>
@@ -60,28 +59,29 @@ object ConcatPreOp extends PreOp {
                      case Some(l) => l == len
                      case None => true
                    })) yield {
-                val splitA = InitFinalAutomaton.setFinal(resultConstraint, Set(s))
-                val splitB = InitFinalAutomaton.setInitial(resultConstraint, s)
-                for(i<-0 to splitA.registers.length-1){
-//                  val t = AllocTTerm()
-                
-                  val internRes = AtomicStateAutomatonAdapter.intern(resultConstraint)  
-                  val r = internRes.asInstanceOf[BricsAutomaton].registers(i)
-                  val r1 = splitA.registers(i)
-                  val r2 = splitB.registers(i)
-                  // println("r1=:   "+r1 + ",\tr2=:  "+r2+",\tformula=:  "+r+"="+r1+"+"+r2 )
-                  a.addFormula(r === r1+r2)
-                }
+               val splitA = InitFinalAutomaton.setFinal(resultConstraint, Set(s))
+               val splitB = InitFinalAutomaton.setInitial(resultConstraint, s)
+               val a = new LinearConstraints
+               for(i<-0 to splitA.registers.length-1){
+                 //                  val t = AllocTTerm()
+
+                  val internRes = AtomicStateAutomatonAdapter.intern(resultConstraint)
+                 val r = internRes.asInstanceOf[BricsAutomaton].registers(i)
+                 val r1 = splitA.registers(i)
+                 val r2 = splitB.registers(i)
+                 // println("r1=:   "+r1 + ",\tr2=:  "+r2+",\tformula=:  "+r+"="+r1+"+"+r2 )
+                 a.addFormula(r === r1+r2)
+               }
                (List(splitA,
-                     splitB)
-                 ,a)
-              },
-              List(List(lenAut), List()))
+               splitB)
+               ,a)
+             },
+             List(List(lenAut), List()))
 
            case None =>
              argLengths(1) match {
                case Some((lenAut, len))
-                 if resultConstraint.uniqueAcceptedWordLength.isDefined => {
+             if resultConstraint.uniqueAcceptedWordLength.isDefined => {
                  // the suffix needs to be of a certain length
                  val resLength = resultConstraint.uniqueAcceptedWordLength.get
                  (for (s <- resultConstraint.states.iterator;
@@ -89,7 +89,8 @@ object ConcatPreOp extends PreOp {
                          case Some(l) => l + len == resLength
                          case None => true
                        })) yield {
-                    val splitA = InitFinalAutomaton.setFinal(resultConstraint, Set(s))
+                   val a = new LinearConstraints
+                   val splitA = InitFinalAutomaton.setFinal(resultConstraint, Set(s))
                     val splitB = InitFinalAutomaton.setInitial(resultConstraint, s)
                     for(i<-0 to splitA.registers.length-1){
                       val internRes = AtomicStateAutomatonAdapter.intern(resultConstraint)
@@ -109,7 +110,8 @@ object ConcatPreOp extends PreOp {
                  (for (s <- resultConstraint.states.iterator) yield {
                     val splitA = InitFinalAutomaton.setFinal(resultConstraint, Set(s))
                     val splitB = InitFinalAutomaton.setInitial(resultConstraint, s)
-                    for(i<-0 to splitA.registers.length-1){
+                   val a = new LinearConstraints
+                   for(i<-0 to splitA.registers.length-1){
                       val internRes = AtomicStateAutomatonAdapter.intern(resultConstraint)
                       val r = internRes.asInstanceOf[BricsAutomaton].registers(i)
                       val r1 = splitA.registers(i)

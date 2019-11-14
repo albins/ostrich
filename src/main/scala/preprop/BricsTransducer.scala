@@ -308,8 +308,8 @@ class BricsTransducer(val initialState : BricsAutomaton#State,
           val tsNext = dest(t)
           val psNext = getState(dest(t), as)
           // TODO
-          etaMap += ((ps, lbl, psNext)->v)
-          preBuilder.addTransition(ps, lbl, psNext)
+          // etaMap += ((ps, lbl, psNext)->v)
+          preBuilder.addTransition(ps, lbl, psNext, v)
 
           reachStates(tsNext, as, initVector())
         }
@@ -338,7 +338,7 @@ class BricsTransducer(val initialState : BricsAutomaton#State,
     AutomataUtils.buildEpsilons(preBuilder, silentTransitions, true)
 
     val res = preBuilder.getAutomaton.asInstanceOf[BricsAutomaton]
-    res.addEtaMaps(etaMap)
+    res.addEtaMaps(preBuilder.etaMap)
     res.setRegisters(resAut.registers)
     res
   }

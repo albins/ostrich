@@ -23,40 +23,51 @@ class SubStringPreOp(i : Term, j : Term) extends PreOp{
     val a = new LinearConstraints
     val resAut = AtomicStateAutomatonAdapter.intern(resultConstraint).asInstanceOf[BricsAutomaton]
     val builder = resAut.getBuilder
-    val initState = builder.getNewState
     val infiniteCycleS = builder.getNewState
-    builder.setInitialState(initState)
     builder.setAccept(infiniteCycleS, true)
     val resAutRLen = resAut.registers.size    // resAut registers size
     val tmpList = List.fill(resAutRLen)(0)
     val sigma = builder.LabelOps.sigmaLabel
 
-    val resAutSLen = resAut.states.size       // resAut registers size
+    val resAutSLen = resAut.states.size       // resAut states size
     val states1 = List.fill(resAutSLen)(builder.getNewState)
     // from resAut states map to new states
     val sMap = (resAut.states zip states1).toMap
+    val initState = builder.getNewState
+    builder.setInitialState(initState)
 
     var needIFCS : Boolean = false
-    for((ts, (charMin, charMax)) <- resAut.outgoingTransitions(resAut.initialState)){
-      val vector = resAut.etaMap((resAut.initialState, (charMin,charMax), ts))
-      builder.addTransition(initState, (charMin,charMax), sMap(ts), List(0,0)++vector)
-    }
+
+     // add transition from resAut initState
+     for((ts, (charMin, charMax)) <- resAut.outgoingTransitions(resAut.initialState)){
+       val vector = resAut.etaMap((resAut.initialState, (charMin,charMax), ts))
+       builder.addTransition(initState, (charMin,charMax), sMap(ts), List(0,1)++vector)
+     }
 
     builder.addTransition(initState, sigma, initState, List(1,1)++tmpList)
 
+    val resInit = resAut.initialState
+    var resInitArrivable = false
+    for((_, _, to) <- resAut.transitions){
+      if(to == resInit)
+        resInitArrivable = true
+    }
     for(fs <- resAut.states){
-      val fsIsAccept = resAut.acceptingStates(fs)
+      val fsIsAccept = resAut.isAccept(fs)
       builder.setAccept(sMap(fs), fsIsAccept)
-      for((ts, label) <- resAut.outgoingTransitions(fs)){
-        val vector = resAut.etaMap((fs, label, ts))
-        builder.addTransition(sMap(fs), label, sMap(ts), List(0,1)++vector)
+      if(resInitArrivable || fs != resInit) {
+        // resInit's transition has already been added above
+        for ((ts, label) <- resAut.outgoingTransitions(fs)) {
+          val vector = resAut.etaMap((fs, label, ts))
+          builder.addTransition(sMap(fs), label, sMap(ts), List(0, 1) ++ vector)
+        }
+        if (fsIsAccept)
+          if (builder.etaMap.contains((sMap(fs), sigma, sMap(fs)))) {
+            needIFCS = true
+            builder.addTransition(sMap(fs), sigma, infiniteCycleS, List(0, 0) ++ tmpList)
+          } else
+            builder.addTransition(sMap(fs), sigma, sMap(fs), List(0, 0) ++ tmpList)
       }
-      if(fsIsAccept)
-        if(builder.etaMap.contains(((sMap(fs), sigma, sMap(fs))))){
-          needIFCS = true
-          builder.addTransition(sMap(fs),sigma,infiniteCycleS, List(0,0)++tmpList)
-        }else
-          builder.addTransition(sMap(fs), sigma, sMap(fs), List(0,0)++tmpList)
     }
     if(needIFCS)
       builder.addTransition(infiniteCycleS,sigma,infiniteCycleS, List(0,0)++tmpList)
@@ -65,7 +76,7 @@ class SubStringPreOp(i : Term, j : Term) extends PreOp{
     res.addNewRegister(2)   // i,j
     res.addRegisters(resAut.registers)  // New registers is (i, j)++resAut.registers
     a.addFormula(res.registers(0) === input_i)
-    a.addFormula(res.registers(1) === input_j-1)  // for python , s[1:3] do not contain s[3]
+    a.addFormula(res.registers(1) === input_j)  // for python , s[1:3] do not contain s[3]
 
     (Iterator((Seq(res), a)), List())
   }

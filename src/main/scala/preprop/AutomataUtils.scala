@@ -109,30 +109,40 @@ object AutomataUtils {
    * status of the combination with <code>newAut</code> is unknown.
    */
   def findUnsatCore(oldAuts : Seq[Automaton],
+                    //huzi add :
+                    productAut : Automaton,
+                    //huzi add :
                     newAut : Automaton) : Option[Seq[Automaton]] = {
 
-    val consideredAuts = new ArrayBuffer[Automaton]
-    consideredAuts += newAut
+    // val consideredAuts = new ArrayBuffer[Automaton]
+    // consideredAuts += newAut
 
-    // add automata until we encounter a conflict
-    var cont = areConsistentAutomata(consideredAuts)
-    val oldAutsIt = oldAuts.iterator
-    while (cont && oldAutsIt.hasNext) {
-      consideredAuts += oldAutsIt.next
-      cont = areConsistentAutomata(consideredAuts)
-    }
+    // // add automata until we encounter a conflict
+    // var cont = areConsistentAutomata(consideredAuts)
+    // val oldAutsIt = oldAuts.iterator
+    // while (cont && oldAutsIt.hasNext) {
+    //   consideredAuts += oldAutsIt.next
+    //   cont = areConsistentAutomata(consideredAuts)
+    // }
 
-    if (cont)
+    // if (cont)
+    //   return None
+
+    // // remove automata to get a small core
+    // for (i <- (consideredAuts.size - 2) to 1 by -1) {
+    //   val removedAut = consideredAuts remove i
+    //   if (areConsistentAutomata(consideredAuts))
+    //     consideredAuts.insert(i, removedAut)
+    // }
+
+//    val prod = productAut & newAut
+//    val debug = prod
+    val consist = !(productAut & newAut).isEmpty
+    if(consist)
       return None
+    Some(oldAuts :+ newAut)
 
-    // remove automata to get a small core
-    for (i <- (consideredAuts.size - 2) to 1 by -1) {
-      val removedAut = consideredAuts remove i
-      if (areConsistentAutomata(consideredAuts))
-        consideredAuts.insert(i, removedAut)
-    }
 
-    Some(consideredAuts)
   }
 
   /**
@@ -436,20 +446,20 @@ object AutomataUtils {
         val vector = aut.etaMap((s1, l, s2))
 
       if (autAccept contains s2){
-        builder.addTransition(initState, l, smap(s1))
+        builder.addTransition(initState, l, smap(s1), vector)
         //construct (q', σ, q, η) tuple 
         //(q', σ, q, η)∈ δ' such that (q, σ, q', η) ∈ δ
-        etaMap += ((initState, l, smap(s1)) -> vector)
+        // etaMap += ((initState, l, smap(s1)) -> vector)
       }
-      builder.addTransition(smap(s2), l, smap(s1))
+      builder.addTransition(smap(s2), l, smap(s1), vector)
       //construct (q', σ, q, η) tuple 
       //(q', σ, q, η)∈ δ' such that (q, σ, q', η) ∈ δ
-      etaMap += ((smap(s2), l, smap(s1)) -> vector)
+      // etaMap += ((smap(s2), l, smap(s1)) -> vector)
     }
 
     val res = builder.getAutomaton
     // add (q', σ, q, η) tuple
-    res.addEtaMaps(etaMap)
+    res.addEtaMaps(builder.etaMap)
     res.addRegisters(aut.registers)
     res
   }    

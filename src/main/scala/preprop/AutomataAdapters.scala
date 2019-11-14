@@ -106,8 +106,8 @@ abstract class AtomicStateAutomatonAdapter[A <: AtomicStateAutomaton]
     // hu zi add -------------------------------------------------------------
     case a : BricsAutomaton => {
       type Transition = (BricsAutomaton#State, BricsAutomaton#TLabel, BricsAutomaton#State)
-      val builder = underlying.getBuilder
-      val smap = new MHashMap[underlying.State, underlying.State]
+      val builder = a.getBuilder
+      val smap = new MHashMap[underlying.State, a.State]
       val etaMap = new MHashMap[Transition, List[Int]]
 
       for (s <- states)
@@ -121,11 +121,11 @@ abstract class AtomicStateAutomatonAdapter[A <: AtomicStateAutomaton]
             to.asInstanceOf[BricsAutomaton#State])
           val vector = a.etaMap(transition)
 
-          builder.addTransition(t, label, smap(to))
-          val builderTransition = (t.asInstanceOf[BricsAutomaton#State],
-            label.asInstanceOf[BricsAutomaton#TLabel],
-            smap(to).asInstanceOf[BricsAutomaton#State])
-          etaMap += (builderTransition -> vector)
+          builder.addTransition(t, label.asInstanceOf[BricsAutomaton#TLabel], smap(to), vector)
+          // val builderTransition = (t.asInstanceOf[BricsAutomaton#State],
+          //   label.asInstanceOf[BricsAutomaton#TLabel],
+          //   smap(to).asInstanceOf[BricsAutomaton#State])
+          // etaMap += (builderTransition -> vector)
         }
         builder.setAccept(t, isAccept(s))
       }
@@ -133,7 +133,7 @@ abstract class AtomicStateAutomatonAdapter[A <: AtomicStateAutomaton]
       builder.setInitialState(smap(initialState))
 
       val res = builder.getAutomaton
-      res.asInstanceOf[BricsAutomaton].addEtaMaps(etaMap) 
+      res.asInstanceOf[BricsAutomaton].addEtaMaps(builder.etaMap) 
       res.asInstanceOf[BricsAutomaton].setRegisters(registers)
       res
     }
