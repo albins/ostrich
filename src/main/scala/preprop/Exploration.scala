@@ -18,22 +18,20 @@
 
 package strsolver.preprop
 
-import sys.process._
-import scala.language.postfixOps
 import java.io.{FileWriter, PrintWriter}
 
-import strsolver.IntConstraintStore
 import ap.SimpleAPI
-import SimpleAPI.ProverStatus
 import ap.basetypes.IdealInt
-import ap.parser.{IExpression, ITerm, InputAbsy2Internal, Internal2InputAbsy, SMTLineariser, SymbolCollector}
+import ap.parser.{Internal2InputAbsy, SymbolCollector}
 import ap.terfor._
 import ap.terfor.linearcombination.LinearCombination
-import ap.terfor.substitutions.VariableSubst
-import ap.theories.TheoryRegistry
 import ap.util.Seqs
+import strsolver.{Flags, IntConstraintStore}
 
+import scala.collection.breakOut
 import scala.collection.mutable.{ArrayBuffer, ArrayStack, LinkedHashSet, BitSet => MBitSet, HashMap => MHashMap, HashSet => MHashSet}
+import scala.language.postfixOps
+import scala.sys.process._
 
 case class TermConstraint(t : Term, aut : Automaton)
 object Exploration {
@@ -82,12 +80,13 @@ object Exploration {
   def lazyExp(funApps : Seq[(PreOp, Seq[Term], Term)],
               // huzi add 
               intFunApps : Seq[(PreOp, Seq[Term], Term)],
+              concreteValues : MHashMap[Term, Seq[Int]],
               // huzi add
               initialConstraints : Seq[(Term, Automaton)],
               // lengthProver : Option[SimpleAPI],
               lengthVars : Map[Term, Term],
               strictLengths : Boolean) : Exploration =
-    new LazyExploration(funApps, intFunApps, initialConstraints,
+    new LazyExploration(funApps, intFunApps, concreteValues, initialConstraints,
                         lengthVars, strictLengths)
 
   private case class FoundModel(model : Map[Term, Seq[Int]]) extends Exception
@@ -95,9 +94,9 @@ object Exploration {
 
   def measure[A](op : String)(comp : => A) : A =
 //    if (Flags.measureTimes)
-//      ap.util.Timer.measure(op)(comp)
+     ap.util.Timer.measure(op)(comp)
 //    else
-      comp
+      // comp
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -108,6 +107,7 @@ object Exploration {
 abstract class Exploration(val funApps : Seq[(PreOp, Seq[Term], Term)],
                            // huzi add 
                            val intFunApps : Seq[(PreOp, Seq[Term], Term)],
+                           val concreteValues : MHashMap[Term, Seq[Int]],
                            // huzi add 
                            val initialConstraints : Seq[(Term, Automaton)],
                            // lengthProver : Option[SimpleAPI],
@@ -181,7 +181,7 @@ abstract class Exploration(val funApps : Seq[(PreOp, Seq[Term], Term)],
   }
 
   for ((ops, t) <- sortedFunApps)
-    if (ops.size > 1) {
+    if (ops.size > 1  && !(concreteValues contains t)) {
       printf("Mutiple definitions found for "+t+"\n")
       printf("unknow\n")
       System.exit(1)
@@ -214,6 +214,15 @@ abstract class Exploration(val funApps : Seq[(PreOp, Seq[Term], Term)],
         coveredTerms += ind
 
     val additionalConstraints = new ArrayBuffer[(Term, BricsAutomaton)]
+
+    // check whether any of the terms have concrete definitions
+    for (t <- allTerms)
+      for (w <- concreteValues get t) {
+        val str : String = w.map(i => i.toChar)(breakOut)
+        additionalConstraints += ((t, BricsAutomaton fromString str))
+        for (ind <- term2Index get t)
+          coveredTerms += ind
+      }
 
     for (n <- 0 until sortedFunApps.size;
          if {
@@ -269,11 +278,10 @@ abstract class Exploration(val funApps : Seq[(PreOp, Seq[Term], Term)],
 
     try {
       dfExploreHeuri(funAppList)
-      // TODO: dfExploreHeuri is heuristic, when it give unknow
-      // we need to check it use complete algorithm
-      // if(res = dfExploreHeuri == unknow)
-      // complete algorithm
-//      dfExploreComplete(funAppList)
+      if(Flags.nuxmvTimeout){
+        println("unknow")
+        System.exit(1)
+      }
       None
     } catch {
       case FoundModel(model) => Some(model)
@@ -402,6 +410,20 @@ abstract class Exploration(val funApps : Seq[(PreOp, Seq[Term], Term)],
     res
   }
 
+  def nuxmvCompute() : Int = {
+    var res = 0
+    val str = Seq("./solve", "tmp.txt", Flags.nuxmvTime) .!!
+    if(!str.endsWith("\n0\n"))
+      // timeout
+      res = 2
+    else if (str.takeRight(60).indexOf("is false") > 0)
+      // sat
+      res = 1
+    else
+      // unsat
+      res = 0
+    res
+  }
   /**
    * input topological funclist, return the conflict set, or throw FindModel
    * 
@@ -431,16 +453,20 @@ abstract class Exploration(val funApps : Seq[(PreOp, Seq[Term], Term)],
       }
 
       val atomAuts = getAtomAuts(tmpBuffer)
-      printIntConstraint(atomAuts)
-      printAtomAuts(atomAuts)
-      println("nmuxv compute")
-      val str = "./solve tmp.txt" !!
-      val isSat = (str.takeRight(46).take(8) == "is false")
-      if(isSat)
-        throw FoundModel(model.toMap)
-      else
-        return List()
-
+      measure("println Int constraints") {printIntConstraint(atomAuts)}
+      measure("println atomAuts"){printAtomAuts(atomAuts)}
+      println("nuxmv compute")
+      measure("nuxmv"){nuxmvCompute()} match {
+        // unsat
+        case 0 => return List()
+        // sat
+        case 1 => throw FoundModel(model.toMap)
+        // timeout
+        case 2 => {
+          Flags.nuxmvTimeout = true
+          return List()
+        }
+      }
     }
     case (op, args, res) :: otherApps =>
     dfExploreHeuriOp(op, args, res, constraintStores(res).getContents,
@@ -467,9 +493,11 @@ abstract class Exploration(val funApps : Seq[(PreOp, Seq[Term], Term)],
 
       // huzi modify
       val (newConstraintsWithLinear, argDependencies) = 
-        measure("pre-op") { op(argConstraints, resAut) }
+        // measure("pre-op") { op(argConstraints, resAut) }
+         op(argConstraints, resAut) 
 
-      while (measure("pre-op hasNext") {newConstraintsWithLinear.hasNext}) {
+      // while (measure("pre-op hasNext") {newConstraintsWithLinear.hasNext}) {
+      while (newConstraintsWithLinear.hasNext) {
 
         val (argCS, lC) = newConstraintsWithLinear.next
 
@@ -542,180 +570,7 @@ println("backjump " + (conflict map { case TermConstraint(t, aut) => (t, aut.has
       collectedConflicts.toSeq
     }
   }
-    /**
-   * input topological funclist, return the conflict set, or throw FindModel
-   * 
-   */
-  private def dfExploreComplete(apps : List[(PreOp, Seq[Term], Term)]
-                        )
-                      : ConflictSet = apps match {
-
-    case List() => {
-      // // we are finished and just have to construct a model
-      // if findModel, throw FindModel, else return List() stand for Unknow
-      val model = new MHashMap[Term, Seq[Int]]
-      if(!strictLengths)      
-        // there is no int constraints
-        throw FoundModel(model.toMap)
-
-      val tmpBuffer = AtomConstraints.constraints.clone()
-
-      // delet term which is not atom term.
-      // e.g. x1 = y1·z1;  x2 = y2·z2   x1 and x2 is not atom term
-      AtomConstraints.constraints.foreach{
-        case TermConstraint(term, a) => {
-          if(notAtomTermSet(term)){
-            tmpBuffer -= TermConstraint(term, a)
-          }
-        }
-      }
-      
-
-      SimpleAPI.withProver{ p=>
-        import p._
-        val constantTermSet = new MHashSet[ConstantTerm]()
-
-        // println("output parikh formula")
-        // parikhIntFormula.foreach{case formula => {SMTLineariser((formula)); println()}}
-
-        // the input int constraints
-        val inputIntFormula = IntConstraintStore()
-        constantTermSet ++= SymbolCollector constantsSorted Internal2InputAbsy(inputIntFormula)
-        addAssertion(inputIntFormula)
-
-        // the preop int constraints
-        for(i <- 0 to LCStack.size-1) {
-          val preOpIntFormula = LCStack(i)
-          preOpIntFormula().foreach{
-            case a => constantTermSet ++= SymbolCollector.constantsSorted((a))
-          }
-          preOpIntFormula().foreach(addAssertion(_))
-        }
-
-        // the derived int constraints, e.g from substr and lenth relation
-        constantTermSet ++= SymbolCollector constantsSorted StoreLC()
-        addAssertion(StoreLC())
-        val finalCons = getProductAuts(tmpBuffer)
-        println("begin to compute parikh image")
-        val parikhIntFormula = getAutsParikhImage(finalCons).map(Internal2InputAbsy(_))
-        parikhIntFormula.foreach{case formula => constantTermSet ++= SymbolCollector.constantsSorted(formula)}
-        parikhIntFormula.foreach(addAssertion(_))
-        println("parikh image compute finished")
-        addConstantsRaw(constantTermSet)
-        println(???)
-        ??? match {
-          case ProverStatus.Sat => throw FoundModel(model.toMap)
-          // return List() to stand for Unknow
-          case ProverStatus.Unsat => return  List()
-        }
-
-      }
-    }
-    case (op, args, res) :: otherApps =>
-    dfExploreCompleteOp(op, args, res, constraintStores(res).getContents,
-      otherApps)
-  }
-
-  private def dfExploreCompleteOp(op : PreOp,
-                          args : Seq[Term],
-                          res : Term,
-                          resConstraints : List[Automaton],
-                          nextApps : List[(PreOp, Seq[Term], Term)]
-                          )
-                        : ConflictSet = resConstraints match {
-    case List() =>
-      dfExploreComplete(nextApps)
-
-    case resAut :: otherAuts => {
-      ap.util.Timeout.check
-
-      var notConflict = false
-      val argConstraints =
-        for (a <- args) yield constraintStores(a).getCompleteContents
-      val collectedConflicts = new LinkedHashSet[TermConstraint]
-
-      // huzi modify
-      val (newConstraintsWithLinear, argDependencies) = 
-        measure("pre-op") { op(argConstraints, resAut) }
-
-      while (measure("pre-op hasNext") {newConstraintsWithLinear.hasNext}) {
-
-        val (argCS, lC) = newConstraintsWithLinear.next
-
-        // huzi add
-        AtomConstraints.push
-        LCStack push lC
-        for (a <- args){
-          constraintStores(a).push
-        }
-
-
-        try {
-          val newConstraints = new MHashSet[TermConstraint]
-
-          var consistent = true
-          for ((a, aut) <- args zip argCS)
-            if (consistent) {
-              newConstraints += TermConstraint(a, aut)
-              // huzi add 
-              AtomConstraints.addConstraints(TermConstraint(a,aut))
-
-              constraintStores(a).assertConstraint(aut) match {
-                case Some(conflict) => {
-                  consistent = false
-//println("assertConstraint false!!!!!!!!!!!!!")
-                  assert(!Seqs.disjointSeq(newConstraints, conflict))
-                  collectedConflicts ++=
-                    (conflict.iterator filterNot newConstraints)
-                }
-                case None => // nothing
-              }
-            }
-
-
-
-          if (consistent) {
-            val conflict = dfExploreCompleteOp(op, args, res, otherAuts, nextApps)
-            // huzi add
-            if(conflict.isEmpty)
-//              println("ffffffffffffffffffffffffff")
-              // compute parikh image backup
-              notConflict = true
-           else if (Seqs.disjointSeq(newConstraints, conflict)) {
-             // we can jump back, because the found conflict does not depend
-             // on the considered function application
-// println("backjump " + (conflict map { case TermConstraint(t, aut) => (t, aut.hashCode) }))
-             return conflict
-           }
-            collectedConflicts ++= (conflict.iterator filterNot newConstraints)
-          }
-        } finally {
-          for (a <- args) {
-            constraintStores(a).pop
-          }
-          AtomConstraints.pop
-          LCStack.pop
-        }
-      }
-      // while end--------------------------------------------------------------------------------------------------------
-
-
-      // if (needCompleteContentsForConflicts)
-      //   collectedConflicts ++=
-      //     (for (aut <- constraintStores(res).getCompleteContents)
-      //      yield TermConstraint(res, aut))
-      // else
-      if(!notConflict) {
-        collectedConflicts += TermConstraint(res, resAut)
-
-        collectedConflicts ++=
-          (for ((t, auts) <- args.iterator zip argDependencies.iterator;
-                aut <- auts.iterator)
-            yield TermConstraint(t, aut))
-      }
-      collectedConflicts.toSeq
-    }
-  }
+  
   protected def newStore(t : Term) : ConstraintStore
 
   // protected val needCompleteContentsForConflicts : Boolean
@@ -732,12 +587,13 @@ println("backjump " + (conflict map { case TermConstraint(t, aut) => (t, aut.has
 class LazyExploration(_funApps : Seq[(PreOp, Seq[Term], Term)],
                       // huzi add 
                       _intFunApps : Seq[(PreOp, Seq[Term], Term)],
+                      _concreteValues : MHashMap[Term, Seq[Int]],
                       // huzi add
                       _initialConstraints : Seq[(Term, Automaton)],
                       // _lengthProver : Option[SimpleAPI],
                       _lengthVars : Map[Term, Term],
                       _strictLengths : Boolean)
-      extends Exploration(_funApps, _intFunApps, _initialConstraints,
+      extends Exploration(_funApps, _intFunApps, _concreteValues, _initialConstraints,
                           _lengthVars, _strictLengths) {
 
   import Exploration._
@@ -840,7 +696,8 @@ class LazyExploration(_funApps : Seq[(PreOp, Seq[Term], Term)],
         }
 
         // find inconsistent constraints
-        measure("AutomataUtils.findUnsatCore") { AutomataUtils.findUnsatCore(constraints, productAut,aut) } match {
+        // measure("AutomataUtils.findUnsatCore") { AutomataUtils.findUnsatCore(constraints, productAut,aut) } match {
+        AutomataUtils.findUnsatCore(constraints, productAut,aut) match {
           case Some(core) => {
             println("find unsat core rrrrrrrrrrrrrrrrrrrrrrrrrr")
             addIncAutomata(core)
