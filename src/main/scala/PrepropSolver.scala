@@ -20,13 +20,13 @@ package strsolver
 
 import strsolver.preprop.{AtomicStateAutomaton, Automaton, BricsAutomaton, ConcatPreOp, Exploration, IndexOfPreOp, LengthPreOp, PreOp, RRFunsToTransducer, ReplaceAllPreOp, ReplaceAllPreOpW, ReplacePreOp, ReplacePreOpW, ReversePreOp, SubStringPreOp, Transducer, TransducerPreOp}
 import ap.SimpleAPI
-import ap.terfor.{TerForConvenience, Term}
+import ap.terfor.{TerForConvenience, Term, TermOrder}
 import ap.terfor.preds.PredConj
 import ap.types.Sort
 import ap.proof.goal.Goal
 import ap.basetypes.IdealInt
-import ap.parser.Internal2InputAbsy
-import ap.terfor.linearcombination.LinearCombination
+import ap.parser.{IConstant, IExpression, Internal2InputAbsy}
+import ap.terfor.linearcombination.{LinearCombination, LinearCombination2}
 import dk.brics.automaton.{RegExp, Automaton => BAutomaton}
 import org.sat4j.minisat.learning.NoLearningNoHeuristics
 import strsolver.preprop.StoreLC
@@ -54,28 +54,45 @@ class PrepropSolver {
     val atoms = goal.facts.predConj
     // 将输入中的整数约束提取出来
     val inputIntFormula = goal.facts.arithConj
+
     IntConstraintStore.setFormula(inputIntFormula)
     // IntConstraintStore.setOrder(goal.order)
     implicit val order = goal.order
     val regex2AFA = new Regex2AFA(atoms)
 
 
-    val containsLength = !(atoms positiveLitsWithPred p(wordLen)).isEmpty || 
-                         !(atoms positiveLitsWithPred p(substring)).isEmpty ||
-                         !(atoms positiveLitsWithPred p(indexof)).isEmpty ||
-                         !(atoms positiveLitsWithPred p(str_at)).isEmpty
-   // all constant term in atoms, store their value in Seq[Int]
+    val containsLength = !(atoms positiveLitsWithPred p(wordLen)).isEmpty ||
+    !(atoms positiveLitsWithPred p(substring)).isEmpty ||
+    !(atoms positiveLitsWithPred p(indexof)).isEmpty ||
+    !(atoms positiveLitsWithPred p(str_at)).isEmpty
+    // all constant term in atoms, store their value in Seq[Int]
     val concreteWords = new MHashMap[Term, Seq[Int]]
     findConcreteWords(atoms) match {
       case Some(w) => concreteWords ++= w
       case None => return None
     }
 
+    // handle P0 != "a"
+    val regexes = new ArrayBuffer[(Term, Automaton)]    // all the res and arg aut
+    inputIntFormula.negativeEqs.foreach{
+      case lb: LinearCombination2 => {
+        val t0 = LinearCombination(lb.getTerm(0),order)
+        val t1 = LinearCombination(lb.getTerm(1),order)
+        if(concreteWords.contains(t0)){
+          val str = concreteWords(t0).map(_.toChar).mkString
+          regexes += ((t1, !BricsAutomaton.fromString(str)))
+        }else if(concreteWords.contains(t1)){
+          val str = concreteWords(t1).map(_.toChar).mkString
+          regexes += ((t0, !BricsAutomaton.fromString(str)))
+        }
+      }
+      case _ =>
+    }
+
     // extract regex constraints and function applications from the
     // literals
     val funApps = new ArrayBuffer[(PreOp, Seq[Term], Term)]   // all the funciton except length and indexof
     val intFunApps = new ArrayBuffer[(PreOp, Seq[Term], Term)]  // length and indexof funciton
-    val regexes = new ArrayBuffer[(Term, Automaton)]    // all the res and arg aut
     val lengthVars = new MHashMap[Term, Term]
     // (res, i, j) store res and two substring int,
     // to handle "" = substr(x, i, j), j<i. Or fasten unsat substring situation
