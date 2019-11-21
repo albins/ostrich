@@ -28,10 +28,11 @@ import ap.basetypes.IdealInt
 import ap.parser.Internal2InputAbsy
 import ap.terfor.linearcombination.LinearCombination
 import dk.brics.automaton.{RegExp, Automaton => BAutomaton}
+import org.sat4j.minisat.learning.NoLearningNoHeuristics
 import strsolver.preprop.StoreLC
 
 import scala.collection.breakOut
-import scala.collection.mutable.{ArrayBuffer, HashMap => MHashMap}
+import scala.collection.mutable.{ArrayBuffer, HashMap => MHashMap, HashSet => MHashSet}
 
 class PrepropSolver {
 
@@ -78,7 +79,9 @@ class PrepropSolver {
     val lengthVars = new MHashMap[Term, Term]
     // (res, i, j) store res and two substring int,
     // to handle "" = substr(x, i, j), j<i. Or fasten unsat substring situation
-    val substrInt = new ArrayBuffer[(Term, Term, Term)]()
+    val substrInt = new MHashSet[(Term, Term, Term)]()
+    // for other func ""=func(parameters), which implys the constraints is unsat
+    val notSubstrNull = new MHashSet[Term]()
     // for example: 0 = length(x), x = substring(y, i, j), we can just add intconstraints i>=j
     // we store the term x in buffer zeroLen
     val zeroLen = new ArrayBuffer[Term]()
@@ -90,7 +93,13 @@ class PrepropSolver {
         if (a(1).isZero)
           zeroLen += a(0)
       }
-      case _ =>
+      case `str_contains` => {
+        if(concreteWords.contains(a.last) && concreteWords(a.last)!=List())
+          notSubstrNull += a.head
+      }
+      case _ => {
+        //TODO
+      }
     }
 
     for (a <- atoms.positiveLits) a.pred match {
@@ -141,7 +150,7 @@ class PrepropSolver {
         funApps += ((ConcatPreOp, List(a(0), a(1)), a(2)))
 
       // huzi modify ------------------------------------------------------------------------
-      // TODO : when replacement is constant
+      // TODO : when replacement result is empty string ""
       // design parameter of ReplacePreOpW、 ReplaceAllPreOpW
       case FunPred(`replaceall`) => {
         val b = (regex2AFA buildStrings a(1)).next
@@ -220,18 +229,24 @@ class PrepropSolver {
         if (a(1).isZero) {
           // for example: 0 = length(x), x = substring(.., i, j), we can just add intconstraints i>=j
           // and delete res = substr(.., i, j)
-          // and can not add regex a(0)="" in this case
           val zeroSub = substrInt.filter { case (res, i, j) => res == a(0) }
-          if (zeroSub.length == 0) 
-            regexes += ((a(0), BricsAutomaton fromString ""))
+                        .map(_._1).filterNot(notSubstrNull)
+          if (zeroSub.size == 0)
+//            regexes += ((a(0), BricsAutomaton fromString ""))
+              return None // unsat
         }else{
           intFunApps += ((LengthPreOp(Internal2InputAbsy(a(1))), List(a(0)), a(1)))
         }
       }
       // hu zi add -------------------------------------------------------------------
       case FunPred(`substring`) => {
-        if( zeroLen.contains(a(3)) ) {
+//        println(concreteWords(a(3)))
+        if((concreteWords.contains(a(3)) && concreteWords(a(3))==List()) ||
+              zeroLen.contains(a(3)) ) {
+          // "" = substring
+//          println("hhhhhhhhh")
           StoreLC.addFormula(Internal2InputAbsy(a(1)) >= Internal2InputAbsy(a(2))) // i>=j
+
         }else
           funApps += ((SubStringPreOp(a(1), a(2)), List(a(0), a(1), a(2)), a(3)))
       }
@@ -352,7 +367,7 @@ class PrepropSolver {
 
     SimpleAPI.withProver { lengthProver =>
       val exploration =
-          Exploration.lazyExp(funApps, intFunApps, regexes,
+          Exploration.lazyExp(funApps, intFunApps, concreteWords, regexes,
                               lengthVars.toMap, containsLength)
 
       exploration.findModel match {

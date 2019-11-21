@@ -33,8 +33,7 @@ object SMTLIBMain {
   object TimeoutException extends MainException("timeout")
   object StoppedException extends MainException("stopped")
 
-  def doMain(args: Array[String],
-             stoppingCond : => Boolean) : Unit = try {
+  def doMain(args: Array[String]) : Unit = try {
     val filenames = new ArrayBuffer[String]
     var timeout : Option[Long] = None
     var model = false
@@ -43,6 +42,8 @@ object SMTLIBMain {
     for (str <- args) str match {
       case CmdlParser.ValueOpt("timeout", value) =>
         timeout = Some(value.toLong * 1000)
+      case CmdlParser.ValueOpt("nuxmvtime", value) =>
+        Flags.nuxmvTime = value
       case CmdlParser.Opt("model", value) =>
         model = value
       case CmdlParser.Opt("assert", value) =>
@@ -60,13 +61,8 @@ object SMTLIBMain {
       case Some(to) => () => {
         if (System.currentTimeMillis - startTime > to)
           throw TimeoutException
-        if (stoppingCond)
-          throw StoppedException
       }
-      case None => () => {
-        if (stoppingCond)
-          throw StoppedException
-      }
+      case None => () =>
     }
 
     ap.util.Debug.enableAllAssertions(assertions)
@@ -139,20 +135,25 @@ object SMTLIBMain {
             println("sat")
           }
         }
+      println("get time:")
+      Console.err.println(ap.util.Timer)
       }
       finally {
         // Make sure that the prover actually stops. If stopping takes
         // too long, kill the whole process
         stop(false)
-        if (getStatus(100) ==
-          ProverStatus.Running) {
+        if (getStatus(100) == ProverStatus.Running) {
           println("timeout")
+          println("get time:")
+          Console.err.println(ap.util.Timer)
           System exit 1
         }
       }
     }
   } catch {
-    case t@(TimeoutException | StoppedException) => {
+    case t@(TimeoutException) => {
+      println("get time:")
+      Console.err.println(ap.util.Timer)
       println("timeout")
       System exit 1
     }
@@ -164,7 +165,7 @@ object SMTLIBMain {
   }
 
   def main(args: Array[String]) : Unit = {
-    doMain(args, false)
+    doMain(args)
   }
 
 }
