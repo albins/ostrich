@@ -1,5 +1,4 @@
 package strsolver.preprop
-import ap.SimpleAPI
 import ap.terfor.ConstantTerm
 // alloc constant term of register r. Id can not be greater than INTMAX
 // e.g r = (R3, R4, R5)

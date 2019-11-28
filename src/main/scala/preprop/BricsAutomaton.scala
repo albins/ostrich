@@ -62,6 +62,8 @@ object BricsAutomaton {
   def fromString(str : String) : BricsAutomaton =
     new BricsAutomaton(BasicAutomata makeString str)
 
+//  def makeEmptyString() : BricsAutomaton =
+//    new BricsAutomaton(BasicAutomata makeEmptyString())
   /**
    * A new automaton that accepts any string
    */

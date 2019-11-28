@@ -28,7 +28,7 @@ import ap.terfor.linearcombination.LinearCombination
 import ap.util.Seqs
 import strsolver.{Flags, IntConstraintStore}
 
-import scala.collection.breakOut
+import scala.collection.{breakOut, mutable}
 import scala.collection.mutable.{ArrayBuffer, ArrayStack, LinkedHashSet, BitSet => MBitSet, HashMap => MHashMap, HashSet => MHashSet}
 import scala.language.postfixOps
 import scala.sys.process._
@@ -83,11 +83,9 @@ object Exploration {
               concreteValues : MHashMap[Term, Seq[Int]],
               // huzi add
               initialConstraints : Seq[(Term, Automaton)],
-              // lengthProver : Option[SimpleAPI],
-              lengthVars : Map[Term, Term],
               strictLengths : Boolean) : Exploration =
     new LazyExploration(funApps, intFunApps, concreteValues, initialConstraints,
-                        lengthVars, strictLengths)
+                        strictLengths)
 
   private case class FoundModel(model : Map[Term, Seq[Int]]) extends Exception
 
@@ -110,8 +108,6 @@ abstract class Exploration(val funApps : Seq[(PreOp, Seq[Term], Term)],
                            val concreteValues : MHashMap[Term, Seq[Int]],
                            // huzi add 
                            val initialConstraints : Seq[(Term, Automaton)],
-                           // lengthProver : Option[SimpleAPI],
-                           lengthVars : Map[Term, Term],
                            strictLengths : Boolean) {
 
   import Exploration._
@@ -327,7 +323,11 @@ abstract class Exploration(val funApps : Seq[(PreOp, Seq[Term], Term)],
 //    }
     out.println("#intconstraints:")
     // input int
-    out.print(IntConstraintStore().toString.toUpperCase())
+    if(IntConstraintStore().toString == "true")
+      out.print(IntConstraintStore().toString.toUpperCase())
+    else
+      out.print(IntConstraintStore())
+
     // preop int
     for(i <- 0 to LCStack.size-1) {
       val preOpIntFormula = LCStack(i)
@@ -590,12 +590,9 @@ class LazyExploration(_funApps : Seq[(PreOp, Seq[Term], Term)],
                       _concreteValues : MHashMap[Term, Seq[Int]],
                       // huzi add
                       _initialConstraints : Seq[(Term, Automaton)],
-                      // _lengthProver : Option[SimpleAPI],
-                      _lengthVars : Map[Term, Term],
                       _strictLengths : Boolean)
       extends Exploration(_funApps, _intFunApps, _concreteValues, _initialConstraints,
-                          _lengthVars, _strictLengths) {
-
+                           _strictLengths) {
   import Exploration._
 
   // protected val needCompleteContentsForConflicts : Boolean = false
@@ -632,7 +629,11 @@ class LazyExploration(_funApps : Seq[(PreOp, Seq[Term], Term)],
     private val watchedAutomata = new MHashMap[Automaton, List[Int]]
 
     // huzi add: 
-    private var productAut : Automaton = BricsAutomaton.makeAnyString
+    private val productAut = new ArrayBuffer[Automaton]()
+    private val productAutStack = new ArrayStack[Int]()
+    // initial
+    productAut += BricsAutomaton.makeAnyString()
+
     // Add a new entry to <code>watchedAutomata</code>; return
     // <code>false</code> in case the set of new automata is a subset of the
     // asserted constraints
@@ -650,7 +651,10 @@ class LazyExploration(_funApps : Seq[(PreOp, Seq[Term], Term)],
           false
       }
 
-    def push : Unit = constraintStack push constraints.size
+    def push : Unit = {
+      constraintStack push constraints.size
+      productAutStack push productAut.size
+    }
 
     def pop : Unit = {
       val oldSize = constraintStack.pop
@@ -658,7 +662,11 @@ class LazyExploration(_funApps : Seq[(PreOp, Seq[Term], Term)],
         constraintSet -= constraints.last
         constraints reduceToSize (constraints.size - 1)
       }
-      productAut = BricsAutomaton.makeAnyString()
+
+      val oldSize2 = productAutStack.pop
+      while (productAut.size > oldSize2) {
+        productAut reduceToSize (productAut.size - 1)
+      }
     }
 
     def assertConstraint(aut : Automaton) : Option[ConflictSet] =
@@ -697,7 +705,7 @@ class LazyExploration(_funApps : Seq[(PreOp, Seq[Term], Term)],
 
         // find inconsistent constraints
         // measure("AutomataUtils.findUnsatCore") { AutomataUtils.findUnsatCore(constraints, productAut,aut) } match {
-        AutomataUtils.findUnsatCore(constraints, productAut,aut) match {
+        AutomataUtils.findUnsatCore(constraints, productAut.last, aut) match {
           case Some(core) => {
             println("find unsat core rrrrrrrrrrrrrrrrrrrrrrrrrr")
             addIncAutomata(core)
@@ -706,7 +714,7 @@ class LazyExploration(_funApps : Seq[(PreOp, Seq[Term], Term)],
           case None => {
             constraints += aut
             constraintSet += aut
-            productAut = productAut & aut
+            productAut += productAut.last & aut
             val c = TermConstraint(t, aut)
 //            addLengthConstraint(c, List(c))
             None

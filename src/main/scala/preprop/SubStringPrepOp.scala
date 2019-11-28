@@ -1,5 +1,6 @@
 package strsolver.preprop
 import ap.basetypes.IdealInt
+import ap.parser.IExpression.{EqZ, GeqZ}
 import ap.parser.Internal2InputAbsy
 import ap.terfor.Term
 import ap.terfor.linearcombination.LinearCombination
@@ -7,21 +8,30 @@ import ap.terfor.linearcombination.LinearCombination
 import scala.collection.mutable.SortedSet
 
 object SubStringPreOp{
-  def apply(i : Term, j : Term) : PreOp = {
-    new SubStringPreOp(i,j)
+  def apply(i : Term, j : Term, resLen : Term) : PreOp = {
+    new SubStringPreOp(i,j,resLen)
   }
 }
 
-class SubStringPreOp(i : Term, j : Term) extends PreOp{
+class SubStringPreOp(i : Term, j : Term, resLen : Term) extends PreOp{
   // TODO : add logic
 	def apply(argumentConstraints : Seq[Seq[Automaton]],
             resultConstraint : Automaton)
           : (Iterator[(Seq[Automaton], LinearConstraints)], Seq[Seq[Automaton]]) = {
     val input_i = Internal2InputAbsy(i)
     val input_j = Internal2InputAbsy(j)
+    val input_resLen = Internal2InputAbsy(resLen)
 
     val a = new LinearConstraints
     val resAut = AtomicStateAutomatonAdapter.intern(resultConstraint).asInstanceOf[BricsAutomaton]
+    // "" = substring(x, i, j)
+    if(resAut.underlying.isEmptyString()){
+//       i<0 || j == 0
+      a.addFormula((input_i < 0) | (input_j<=0) |(input_i >= input_resLen))
+      return (Iterator((Seq(BricsAutomaton.makeAnyString()), a)), List())
+    }
+
+    // else
     val builder = resAut.getBuilder
     val infiniteCycleS = builder.getNewState
     builder.setAccept(infiniteCycleS, true)
@@ -76,9 +86,18 @@ class SubStringPreOp(i : Term, j : Term) extends PreOp{
     res.addNewRegister(2)   // i,j
     res.addRegisters(resAut.registers)  // New registers is (i, j)++resAut.registers
     a.addFormula(res.registers(0) === input_i)
-    a.addFormula(res.registers(1) === input_j)  // for python , s[1:3] do not contain s[3]
+    a.addFormula(res.registers(1) === (input_i+input_j))  // for cvc4 , j is offset, position is i+j
+    a.addFormula(res.registers(1) <= input_resLen)
+//    a.addFormula(res.registers(1) === input_j)  // for python , s[1:3] do not contain s[3]
 
-    (Iterator((Seq(res), a)), List())
+    val b = new LinearConstraints
+    b.addFormula(res.registers(0) === input_i)
+    b.addFormula(res.registers(1) === input_resLen)
+    b.addFormula(input_j > input_resLen)   // for cvc4, if i+j > s.len, the substr(s,i, s.len)
+
+    val reslist = List((Seq(res), a)) :+ ((Seq(res), b))
+//    (Iterator((Seq(res), a)), List())
+    (reslist.toIterator, List())
   }
     
   def eval(arguments : Seq[Seq[Int]]) : Option[Seq[Int]] = {
