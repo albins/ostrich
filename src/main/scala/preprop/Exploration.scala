@@ -543,7 +543,8 @@ abstract class Exploration(val funApps : Seq[(PreOp, Seq[Term], Term)],
            else if (Seqs.disjointSeq(newConstraints, conflict)) {
              // we can jump back, because the found conflict does not depend
              // on the considered function application
-println("backjump " + (conflict map { case TermConstraint(t, aut) => (t, aut.hashCode) }))
+//println("backjump " + (conflict map { case TermConstraint(t, aut) => (t, aut.hashCode) }))
+             println("backjmp")
              return conflict
            }
             collectedConflicts ++= (conflict.iterator filterNot newConstraints)

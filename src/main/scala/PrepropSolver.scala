@@ -289,8 +289,9 @@ class PrepropSolver {
           //   ((i == -1)&(j>ti)))
           // cvc4 semantic
           return None // unsat
-        }else
-          intFunApps += ((IndexOfPreOp(u, Internal2InputAbsy(a(3)), Internal2InputAbsy(a(2))), List(a(0)), a(3)))
+        }else {
+          intFunApps += ((IndexOfPreOp(u, a(3), a(2)), List(a(0)), a(3)))
+        }
       }
       case FunPred(`str_at`) => {
         if(!lenVar.contains(a(0))) {
@@ -451,12 +452,28 @@ class PrepropSolver {
         throw new Exception("Cannot handle " + a)
       assign(a.last, List(a.head.constant.intValueSafe))
     }
-
     var oldSize = 0
     while (res.size > oldSize) {
       oldSize = res.size
 
       for (a <- atoms positiveLitsWithPred p(wordCat))
+        if ((res contains a(0)) && (res contains a(1)))
+          assign(a(2), res(a(0)) ++ res(a(1)))
+    }
+
+    // handle rex op for concrete word
+    for (a <- atoms positiveLitsWithPred p(rexEps))
+      assign(a.last, List())
+    for (a <- atoms positiveLitsWithPred p(rexChar)) {
+      if (!a.head.isConstant)
+        throw new Exception("Cannot handle " + a)
+      assign(a.last, List(a.head.constant.intValueSafe))
+    }
+    oldSize = 0
+    while (res.size > oldSize) {
+      oldSize = res.size
+
+      for (a <- atoms positiveLitsWithPred p(rexCat))
         if ((res contains a(0)) && (res contains a(1)))
           assign(a(2), res(a(0)) ++ res(a(1)))
     }

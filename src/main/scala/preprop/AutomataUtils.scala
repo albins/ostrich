@@ -114,33 +114,35 @@ object AutomataUtils {
                     //huzi add :
                     newAut : Automaton) : Option[Seq[Automaton]] = {
 
-    // val consideredAuts = new ArrayBuffer[Automaton]
-    // consideredAuts += newAut
+     val consideredAuts = new ArrayBuffer[Automaton]
+    consideredAuts ++= oldAuts
+    consideredAuts += newAut
 
     // // add automata until we encounter a conflict
     // var cont = areConsistentAutomata(consideredAuts)
     // val oldAutsIt = oldAuts.iterator
     // while (cont && oldAutsIt.hasNext) {
     //   consideredAuts += oldAutsIt.next
-    //   cont = areConsistentAutomata(consideredAuts)
+//       cont = areConsistentAutomata(consideredAuts)
     // }
 
     // if (cont)
     //   return None
 
-    // // remove automata to get a small core
-    // for (i <- (consideredAuts.size - 2) to 1 by -1) {
-    //   val removedAut = consideredAuts remove i
-    //   if (areConsistentAutomata(consideredAuts))
-    //     consideredAuts.insert(i, removedAut)
-    // }
 
-//    val prod = productAut & newAut
-//    val debug = prod
+    //    val prod = productAut & newAut
+    //    val debug = prod
     val consist = !(productAut & newAut).isEmpty
     if(consist)
-      return None
-    Some(oldAuts :+ newAut)
+    return None
+    // remove automata to get a small core
+    for (i <- (consideredAuts.size - 2) to 1 by -1) {
+      val removedAut = consideredAuts remove i
+      if (areConsistentAutomata(consideredAuts))
+        consideredAuts.insert(i, removedAut)
+    }
+    //    Some(oldAuts :+ newAut)
+    Some(consideredAuts)
 
 
   }

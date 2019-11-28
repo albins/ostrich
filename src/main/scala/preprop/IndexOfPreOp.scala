@@ -1,26 +1,29 @@
 package strsolver.preprop
 import ap.basetypes.IdealInt
-import ap.parser.{ITerm, Internal2InputAbsy}
-import ap.terfor.{Term, TermOrder}
+import ap.parser.Internal2InputAbsy
+import ap.terfor.Term
+import ap.terfor.linearcombination.LinearCombination
 
 import scala.collection.mutable.{ArrayBuffer, SortedSet}
 
 // i = indexof(x,u,j),
 object IndexOfPreOp {
-  def apply(u : List[Char] , i : ITerm, j : ITerm) : PreOp = {
-    new IndexOfPreOp(u,i,j)
+  def apply(u : List[Char] , internali : Term, internalj : Term) : PreOp = {
+    new IndexOfPreOp(u,internali,internalj)
   }
 }
 
-class IndexOfPreOp(u : List[Char], i : ITerm, j : ITerm) extends PreOp{
+class IndexOfPreOp(u : List[Char], internali : Term, internalj : Term) extends PreOp{
 
-    /**
-     * Remove given characters from Sigma label. E.g. [Char.Min, Char.Max] - (5,7) is
-     * [Char.Min,4],[6],[8,Char.Max].  
-     * assume char in s is sored 
-     */
-    def subtractLettersSigma(set : SortedSet[Char]) : Iterable[(Char,Char)] = {
-      val s = set.toBuffer
+  /**
+   * Remove given characters from Sigma label. E.g. [Char.Min, Char.Max] - (5,7) is
+   * [Char.Min,4],[6],[8,Char.Max].
+   * assume char in s is sored
+   */
+  val i = Internal2InputAbsy(internali)
+  val j = Internal2InputAbsy(internalj)
+  def subtractLettersSigma(set : SortedSet[Char]) : Iterable[(Char,Char)] = {
+    val s = set.toBuffer
       val size = s.size
       var res = List[(Char, Char)]()
       var min = Char.MinValue
@@ -42,39 +45,95 @@ class IndexOfPreOp(u : List[Char], i : ITerm, j : ITerm) extends PreOp{
         }
         res = (min, (s(size-1)-1).toChar):: res
         if(s(size-1) != charMax)
-          res = ((s(size-1)+1).toChar, charMax):: res
+        res = ((s(size-1)+1).toChar, charMax):: res
       }
       res
     }
 
-    def apply(argumentConstraints : Seq[Seq[Automaton]],
-            resultConstraint : Automaton)
-          : (Iterator[(Seq[Automaton], LinearConstraints)], Seq[Seq[Automaton]]) = {
-          //construct automaton based on KMP algorithm
-      var resList :List[(Seq[Automaton], LinearConstraints)] = List()
-      // i!=-1
+  def apply(argumentConstraints : Seq[Seq[Automaton]],
+  resultConstraint : Automaton)
+    : (Iterator[(Seq[Automaton], LinearConstraints)], Seq[Seq[Automaton]]) = {
+    //construct automaton based on KMP algorithm
+    var resList :List[(Seq[Automaton], LinearConstraints)] = List()
+    val patternLen = u.size
+    val builder_1 = new BricsAutomatonBuilder
+    val Sigma = builder_1.LabelOps.sigmaLabel
+    val subtract0 = builder_1.LabelOps.subtractLetter(u(0), Sigma)
+    val next = KMP.get_next(u)
+    // i ==-1
+      val a_1 = new LinearConstraints
+    val initState_1 = builder_1.getNewState
+    builder_1.setInitialState(initState_1)
+    val states_1 = (List.fill(patternLen + 1)(builder_1.getNewState)) :+ initState_1
+    // except for states(patternLen) which standing for matching pattern successfully,
+    // the other states set accepts
+    for(i <- 0 to patternLen-1)
+    builder_1.setAccept(states_1(i), true)
+    builder_1.setAccept(initState_1, true)
+
+
+    builder_1.addTransition(initState_1, Sigma, initState_1, List(1))
+    builder_1.addTransition(initState_1, (u(0), u(0)), states_1(1), List(0))
+    subtract0.foreach(
+    builder_1.addTransition(states_1(0), _, states_1(0), List(0))
+    )
+    subtract0.foreach(
+    builder_1.addTransition(initState_1, _, states_1(0), List(0))
+    )
+
+    for (i <- 0 to patternLen - 1) {
+        builder_1.addTransition(states_1(i), (u(i), u(i)), states_1(i + 1), List(0))
+        var j = next(i)
+        val seenSet = SortedSet[Char]()
+        seenSet += u(i)
+        while (j != -1) {
+          if (!seenSet(u(j))) {
+            builder_1.addTransition(states_1(i), (u(j), u(j)), states_1(j + 1), List(0))
+            seenSet += u(j)
+          }
+          j = next(j)
+        }
+        val otherLable = subtractLettersSigma(seenSet)
+        otherLable.foreach(
+        builder_1.addTransition(states_1(i), _, states_1(0), List(0))
+        )
+
+        builder_1.addTransition(states_1(patternLen), Sigma, states_1(patternLen), List(0))
+      }
+    val res_1 = builder_1.getAutomaton
+    res_1.addNewRegister(1) // (j)
+    res_1.addEtaMaps(builder_1.etaMap)
+    //   registers(0) <= j, not registers(0) == 0
+    //   for situation len(x) < j
+    a_1.addFormula(res_1.registers(0) <= j)
+    a_1.addFormula(j >= 0)    // cvc4 semantics
+    // i = -1
+    a_1.addFormula(i === IdealInt.MINUS_ONE)
+    resList =  resList :+ (Seq(res_1), a_1)
+    if(internali == LinearCombination.MINUS_ONE)
+      return  (resList.toIterator, argumentConstraints)
+//      println("minussssssssssssssssssssssssssssssss")
+
+
+    // i!=-1
       val a = new LinearConstraints
-      val builder = new BricsAutomatonBuilder
-      val initState = builder.getNewState
-      builder.setInitialState(initState)
-      val patternLen = u.size
-      val states = (List.fill(patternLen + 1)(builder.getNewState)) :+ initState
-      builder.setAccept(states(patternLen), true)
+    val builder = new BricsAutomatonBuilder
+    val initState = builder.getNewState
+    builder.setInitialState(initState)
+    val states = (List.fill(patternLen + 1)(builder.getNewState)) :+ initState
+    builder.setAccept(states(patternLen), true)
 
-      val Sigma = builder.LabelOps.sigmaLabel
-      val subtract0 = builder.LabelOps.subtractLetter(u(0), Sigma)
-      //
-      // add transition 
-      builder.addTransition(initState, Sigma, initState, List(1, 1))
-      builder.addTransition(initState, (u(0), u(0)), states(1), List(0, 0))
-      subtract0.foreach(
-        builder.addTransition(states(0), _, states(0), List(0, 1))
-      )
-      subtract0.foreach(
-        builder.addTransition(initState, _, states(0), List(0, 1))
-      )
+    //
+    // add transition
+    builder.addTransition(initState, Sigma, initState, List(1, 1))
+    builder.addTransition(initState, (u(0), u(0)), states(1), List(0, 0))
+    subtract0.foreach(
+    builder.addTransition(states(0), _, states(0), List(0, 1))
+    )
+    subtract0.foreach(
+    builder.addTransition(initState, _, states(0), List(0, 1))
+    )
 
-      val next = KMP.get_next(u)
       for (i <- 0 to patternLen - 1) {
         builder.addTransition(states(i), (u(i), u(i)), states(i + 1), List(0, 0))
         var j = next(i)
@@ -91,7 +150,7 @@ class IndexOfPreOp(u : List[Char], i : ITerm, j : ITerm) extends PreOp{
         // except for char in seenSet, other char will jump to state(0)
         val otherLable = subtractLettersSigma(seenSet)
         otherLable.foreach(
-          builder.addTransition(states(i), _, states(0), List(0, i + 1))
+        builder.addTransition(states(i), _, states(0), List(0, i + 1))
         )
 
         // match char after the mathced pattern
@@ -102,60 +161,9 @@ class IndexOfPreOp(u : List[Char], i : ITerm, j : ITerm) extends PreOp{
       res.addEtaMaps(builder.etaMap)
 
       a.addFormula(res.registers(0) === j)
-      a.addFormula(j >= 0)
+      a.addFormula(j >= 0)    // cvc4 semantics
       a.addFormula(res.registers(1) === i)
       resList = resList :+ (Seq(res),a)
-
-      // i ==-1
-      val a_1 = new LinearConstraints
-      val builder_1 = new BricsAutomatonBuilder
-      val initState_1 = builder_1.getNewState
-      builder_1.setInitialState(initState_1)
-      val states_1 = (List.fill(patternLen + 1)(builder_1.getNewState)) :+ initState_1
-      // except for states(patternLen) which standing for matching pattern successfully, 
-      // the other states set accepts
-      for(i <- 0 to patternLen-1)
-        builder_1.setAccept(states_1(i), true)
-      builder_1.setAccept(initState_1, true)
-
-
-      builder_1.addTransition(initState_1, Sigma, initState_1, List(1))
-      builder_1.addTransition(initState_1, (u(0), u(0)), states_1(1), List(0))
-      subtract0.foreach(
-        builder_1.addTransition(states_1(0), _, states_1(0), List(0))
-      )
-      subtract0.foreach(
-        builder_1.addTransition(initState_1, _, states_1(0), List(0))
-      )
-
-      for (i <- 0 to patternLen - 1) {
-        builder_1.addTransition(states_1(i), (u(i), u(i)), states_1(i + 1), List(0))
-        var j = next(i)
-        val seenSet = SortedSet[Char]()
-        seenSet += u(i)
-        while (j != -1) {
-          if (!seenSet(u(j))) {
-            builder_1.addTransition(states_1(i), (u(j), u(j)), states_1(j + 1), List(0))
-            seenSet += u(j)
-          }
-          j = next(j)
-        }
-        val otherLable = subtractLettersSigma(seenSet)
-        otherLable.foreach(
-          builder_1.addTransition(states_1(i), _, states_1(0), List(0))
-        )
-
-        builder_1.addTransition(states_1(patternLen), Sigma, states_1(patternLen), List(0))
-      }
-      val res_1 = builder_1.getAutomaton
-      res_1.addNewRegister(1) // (j)
-      res_1.addEtaMaps(builder_1.etaMap)
-//
-      a_1.addFormula(res_1.registers(0) === j)
-      a_1.addFormula(j >= 0)
-//      // i = -1
-      a_1.addFormula(i === IdealInt.MINUS_ONE)
-      resList =  resList :+ (Seq(res_1), a_1)
 
       (resList.toIterator, argumentConstraints)
     }
