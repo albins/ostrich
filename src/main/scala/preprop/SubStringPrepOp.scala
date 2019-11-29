@@ -1,32 +1,35 @@
 package strsolver.preprop
 import ap.basetypes.IdealInt
-import ap.parser.Internal2InputAbsy
+import ap.parser.{IFormula, Internal2InputAbsy}
 import ap.terfor.Term
 import ap.terfor.linearcombination.LinearCombination
 
 object SubStringPreOp{
-  def apply(i : Term, j : Term, resLen : Term) : PreOp = {
-    new SubStringPreOp(i,j,resLen)
+  def apply(i : Term, j : Term, xlen : Term, reslen : Term) : PreOp = {
+    new SubStringPreOp(i,j,xlen, reslen)
   }
 }
 
-class SubStringPreOp(i : Term, j : Term, resLen : Term) extends PreOp{
+class SubStringPreOp(i : Term, j : Term, xlen : Term, reslen : Term) extends PreOp{
   // TODO : add logic
 	def apply(argumentConstraints : Seq[Seq[Automaton]],
             resultConstraint : Automaton)
           : (Iterator[(Seq[Automaton], LinearConstraints)], Seq[Seq[Automaton]]) = {
     val input_i = Internal2InputAbsy(i)
     val input_j = Internal2InputAbsy(j)
-    val input_resLen = Internal2InputAbsy(resLen)
+    val input_xlen = Internal2InputAbsy(xlen)
+    val input_reslen = Internal2InputAbsy(reslen)
     var resList = List()
     val a = new LinearConstraints
     val resAut = AtomicStateAutomatonAdapter.intern(resultConstraint).asInstanceOf[BricsAutomaton]
+    var f : IFormula = false
     // "" = substring(x, i, j)
     if(resAut.underlying.isEmptyString()){
 //       i<0 | j <= 0 | i >= len(x)
-      a.addFormula((input_i < 0) | (input_j<=0) |(input_i >= input_resLen))
+      a.addFormula((input_i < 0) | (input_j<=0) |(input_i >= input_xlen))
       return (Iterator((Seq(BricsAutomaton.makeAnyString()), a)), List())
     }
+
 
     val builder = resAut.getBuilder
     val infiniteCycleS = builder.getNewState
@@ -83,24 +86,46 @@ class SubStringPreOp(i : Term, j : Term, resLen : Term) extends PreOp{
     res.addEtaMaps(builder.etaMap)
     res.addNewRegister(2)   // i,j
     res.addRegisters(resAut.registers)  // New registers is (i, j)++resAut.registers
-    a.addFormula( ( (
-      (res.registers(1) === (input_i+input_j)) & // for cvc4 , j is offset, position is i+j
-    (res.registers(1) <= input_resLen)
-    ) |
-    (
-      (res.registers(1) === input_resLen) &
-    ((input_i+input_j) > input_resLen)   // for cvc4, if i+j > s.len, the substr(s,i, s.len)
-    )
-    ) & (res.registers(0) === input_i)
-    )
-
     if(resAut.underlying.getShortestExample(true) == ""){
-      // when resAut contains "", we need two choice,
-      val b = new LinearConstraints
-      b.addFormula((input_i < 0) | (input_j<=0) |(input_i >= input_resLen))
-      val resList = List((Seq(BricsAutomaton.makeAnyString()), b)) :+ ((Seq(res), a))
-      return  (resList.toIterator, List())
+      // res contains ""
+      a.addFormula( ( ( (
+                          (res.registers(1) === (input_i+input_j)) & // for cvc4 , j is offset, position is i+j
+                          (res.registers(1) <= input_xlen)
+                        ) |
+                        (
+                          (res.registers(1) === input_xlen) &
+                          ((input_i+input_j) > input_xlen)   // for cvc4, if i+j > s.len, the substr(s,i, s.len)
+                        )
+                      ) & 
+                      (res.registers(0) === input_i)
+                    ) |
+                    // logic for res is ""
+                    (
+                      ((input_i < 0) | (input_j<=0) |(input_i >= input_xlen)) &
+                      (input_reslen === 0)
+                    )
+                  )
+    }else{
+      a.addFormula( ( (
+                        (res.registers(1) === (input_i+input_j)) & // for cvc4 , j is offset, position is i+j
+                        (res.registers(1) <= input_xlen)
+                      ) |
+                      (
+                        (res.registers(1) === input_xlen) &
+                        ((input_i+input_j) > input_xlen)   // for cvc4, if i+j > s.len, the substr(s,i, s.len)
+                      )
+                    ) & 
+                    (res.registers(0) === input_i)
+                  )
     }
+
+//    if(resAut.underlying.getShortestExample(true) == ""){
+//      // when resAut contains "", we need two choice,
+//      val b = new LinearConstraints
+//      b.addFormula((input_i < 0) | (input_j<=0) |(input_i >= input_xlen))
+//      val resList = List((Seq(BricsAutomaton.makeAnyString()), b)) :+ ((Seq(res), a))
+//      return  (resList.toIterator, List())
+//    }
     (Iterator((Seq(res), a)), List())
   }
 

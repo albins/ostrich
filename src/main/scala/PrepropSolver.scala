@@ -263,15 +263,25 @@ class PrepropSolver {
 
       // hu zi add -------------------------------------------------------------------
       case FunPred(`substring`) => {
-        if(!lenVar.contains(a(0))) {
-          val t = AllocTTerm()
-          lenVar += ((a(0), t))
-          intFunApps += ((LengthPreOp(Internal2InputAbsy(t)), List(a(0)), t))
-          funApps += ((SubStringPreOp(a(1), a(2), t), List(a(0), a(1), a(2)), a(3)))
-        }else {
-          val t = lenVar(a(0))
-          funApps += ((SubStringPreOp(a(1), a(2), t), List(a(0), a(1), a(2)), a(3)))
-        }
+        // tmpTerm(0) is x len, tmpTerm(1) is res len
+        val tmpTerm = new ArrayBuffer[Term]()
+        // x len
+        if(lenVar.contains(a(0)))
+          tmpTerm += lenVar(a(0))
+        else {
+          tmpTerm += AllocTTerm()
+          intFunApps += ((LengthPreOp(Internal2InputAbsy(tmpTerm(0))), List(a(0)), tmpTerm(0)))
+          lenVar += ((a(0), tmpTerm(0)))
+        } // x len  end
+        // res len
+        if(lenVar.contains(a(3)))
+          tmpTerm += lenVar(a(3))
+        else {
+          tmpTerm += AllocTTerm()
+          intFunApps += ((LengthPreOp(Internal2InputAbsy(tmpTerm(1))), List(a(3)), tmpTerm(1)))
+          lenVar += ((a(3), tmpTerm(1)))
+        } // res len  end
+        funApps += ((SubStringPreOp(a(1), a(2), tmpTerm(0), tmpTerm(1)), List(a(0), a(1), a(2)), a(3)))
       }
       case FunPred(`indexof`) => {
         println("handle indexof")
@@ -294,15 +304,35 @@ class PrepropSolver {
         }
       }
       case FunPred(`str_at`) => {
-        if(!lenVar.contains(a(0))) {
-          val t = AllocTTerm()
-          lenVar += ((a(0), t))
-          intFunApps += ((LengthPreOp(Internal2InputAbsy(t)), List(a(0)), t))
-          funApps += ((SubStringPreOp(a(1), OneTerm, t), List(a(0), a(1), OneTerm), a(2)))
-        }else{
-          val t = lenVar(a(0))
-          funApps += ((SubStringPreOp(a(1), OneTerm, t), List(a(0), a(1), OneTerm), a(2)))
-        }
+//        if(!lenVar.contains(a(0))) {
+//          val t = AllocTTerm()
+//          lenVar += ((a(0), t))
+//          intFunApps += ((LengthPreOp(Internal2InputAbsy(t)), List(a(0)), t))
+//          funApps += ((SubStringPreOp(a(1), OneTerm, t), List(a(0), a(1), OneTerm), a(2)))
+//        }else{
+//          val t = lenVar(a(0))
+//          funApps += ((SubStringPreOp(a(1), OneTerm, t), List(a(0), a(1), OneTerm), a(2)))
+//        }
+
+        // tmpTerm(0) is x len, tmpTerm(1) is res len
+        val tmpTerm = new ArrayBuffer[Term]()
+        // x len
+        if(lenVar.contains(a(0)))
+          tmpTerm += lenVar(a(0))
+        else {
+          tmpTerm += AllocTTerm()
+          intFunApps += ((LengthPreOp(Internal2InputAbsy(tmpTerm(0))), List(a(0)), tmpTerm(0)))
+          lenVar += ((a(0), tmpTerm(0)))
+        } // x len  end
+        // res len
+        if(lenVar.contains(a(2)))
+          tmpTerm += lenVar(a(2))
+        else {
+          tmpTerm += AllocTTerm()
+          intFunApps += ((LengthPreOp(Internal2InputAbsy(tmpTerm(1))), List(a(2)), tmpTerm(1)))
+          lenVar += ((a(2), tmpTerm(1)))
+        } // res len  end
+        funApps += ((SubStringPreOp(a(1), OneTerm, tmpTerm(0), tmpTerm(1)), List(a(0), a(1), OneTerm), a(2)))
       }
 
       // hu zi add -------------------------------------------------------------------
