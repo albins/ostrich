@@ -69,7 +69,6 @@ object BricsAutomaton {
    */
   def makeAnyString() : BricsAutomaton = {
 //      new BricsAutomaton(BAutomaton.makeAnyString)
-    // our sigma is (0, 127), ascii char
     val builder = new BricsAutomatonBuilder
     val initState = builder.getNewState
     val Sigma = builder.LabelOps.sigmaLabel

@@ -204,7 +204,7 @@ class PrepropSolver {
         if (concreteWords contains (a(2))) {
           // println("handle replace func with replacement of concreteword")
           val word = (regex2AFA buildStrings a(2)).next.map(_.left.get)
-          funApps += ((ReplaceAllPreOpW(b, word), List(a(0), a(2)), a(3)))
+          funApps += ((ReplacePreOpW(b, word), List(a(0), a(2)), a(3)))
         } else {
           printf("can not handle this kind of replace( replacement is not concreteword )\n")
           printf("unknow\n")

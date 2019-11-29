@@ -61,14 +61,14 @@ class IndexOfPreOp(u : List[Char], internali : Term, internalj : Term) extends P
     val subtract0 = builder_1.LabelOps.subtractLetter(u(0), Sigma)
     val next = KMP.get_next(u)
     // i ==-1
-      val a_1 = new LinearConstraints
+    val a_1 = new LinearConstraints
     val initState_1 = builder_1.getNewState
     builder_1.setInitialState(initState_1)
     val states_1 = (List.fill(patternLen + 1)(builder_1.getNewState)) :+ initState_1
     // except for states(patternLen) which standing for matching pattern successfully,
     // the other states set accepts
     for(i <- 0 to patternLen-1)
-    builder_1.setAccept(states_1(i), true)
+      builder_1.setAccept(states_1(i), true)
     builder_1.setAccept(initState_1, true)
 
 
@@ -103,12 +103,12 @@ class IndexOfPreOp(u : List[Char], internali : Term, internalj : Term) extends P
     val res_1 = builder_1.getAutomaton
     res_1.addNewRegister(1) // (j)
     res_1.addEtaMaps(builder_1.etaMap)
-    //   registers(0) <= j, not registers(0) == 0
+    //   registers(0) <= j, not registers(0) == j
     //   for situation len(x) < j
     a_1.addFormula(res_1.registers(0) <= j)
     a_1.addFormula(j >= 0)    // cvc4 semantics
     // i = -1
-    a_1.addFormula(i === IdealInt.MINUS_ONE)
+    a_1.addFormula(i === -1)
     resList =  resList :+ (Seq(res_1), a_1)
     if(internali == LinearCombination.MINUS_ONE)
       return  (resList.toIterator, argumentConstraints)
@@ -116,7 +116,7 @@ class IndexOfPreOp(u : List[Char], internali : Term, internalj : Term) extends P
 
 
     // i!=-1
-      val a = new LinearConstraints
+    val a = new LinearConstraints
     val builder = new BricsAutomatonBuilder
     val initState = builder.getNewState
     builder.setInitialState(initState)

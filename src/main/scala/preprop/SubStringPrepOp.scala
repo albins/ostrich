@@ -19,14 +19,12 @@ class SubStringPreOp(i : Term, j : Term, xlen : Term, reslen : Term) extends Pre
     val input_j = Internal2InputAbsy(j)
     val input_xlen = Internal2InputAbsy(xlen)
     val input_reslen = Internal2InputAbsy(reslen)
-    var resList = List()
     val a = new LinearConstraints
     val resAut = AtomicStateAutomatonAdapter.intern(resultConstraint).asInstanceOf[BricsAutomaton]
-    var f : IFormula = false
     // "" = substring(x, i, j)
     if(resAut.underlying.isEmptyString()){
 //       i<0 | j <= 0 | i >= len(x)
-      a.addFormula((input_i < 0) | (input_j<=0) |(input_i >= input_xlen))
+      a.addFormula((input_i < 0) | (input_j<=0) | input_i >= input_xlen)
       return (Iterator((Seq(BricsAutomaton.makeAnyString()), a)), List())
     }
 
