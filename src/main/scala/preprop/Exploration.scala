@@ -518,16 +518,16 @@ abstract class Exploration(val funApps : Seq[(PreOp, Seq[Term], Term)],
               // huzi add 
               AtomConstraints.addConstraints(TermConstraint(a,aut))
 
-              constraintStores(a).assertConstraint(aut) match {
-                case Some(conflict) => {
-                  consistent = false
-//println("assertConstraint false!!!!!!!!!!!!!")
-                  assert(!Seqs.disjointSeq(newConstraints, conflict))
-                  collectedConflicts ++=
-                    (conflict.iterator filterNot newConstraints)
-                }
-                case None => // nothing
-              }
+//               constraintStores(a).assertConstraint(aut) match {
+//                 case Some(conflict) => {
+//                   consistent = false
+// //println("assertConstraint false!!!!!!!!!!!!!")
+//                   assert(!Seqs.disjointSeq(newConstraints, conflict))
+//                   collectedConflicts ++=
+//                     (conflict.iterator filterNot newConstraints)
+//                 }
+//                 case None => // nothing
+//               }
             }
 
 
@@ -537,14 +537,14 @@ abstract class Exploration(val funApps : Seq[(PreOp, Seq[Term], Term)],
             // huzi add
             if(conflict.isEmpty)
               notConflict = true
-           else if (Seqs.disjointSeq(newConstraints, conflict)) {
-             // we can jump back, because the found conflict does not depend
-             // on the considered function application
-//println("backjump " + (conflict map { case TermConstraint(t, aut) => (t, aut.hashCode) }))
-             println("backjmp")
-             return conflict
-           }
-            collectedConflicts ++= (conflict.iterator filterNot newConstraints)
+//            else if (Seqs.disjointSeq(newConstraints, conflict)) {
+//              // we can jump back, because the found conflict does not depend
+//              // on the considered function application
+// //println("backjump " + (conflict map { case TermConstraint(t, aut) => (t, aut.hashCode) }))
+//              println("backjmp")
+//              return conflict
+//            }
+//             collectedConflicts ++= (conflict.iterator filterNot newConstraints)
           }
         } finally {
           for (a <- args) {
