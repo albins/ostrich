@@ -147,7 +147,7 @@ object BricsAutomaton {
     val sMapRev = new MHashMap[List[Any], head.State]
 
     val initStates = (auts.map(_.initialState)).toList
-    sMap += initState -> initStates
+    sMap += initState     -> initStates
     sMapRev += initStates -> initState
 
     val worklist = new MStack[(head.State, List[Any])]
@@ -201,7 +201,7 @@ object BricsAutomaton {
           }
           case _state :: ssTail => {
             val aut :: autsTail = remAuts
-            val state = _state.asInstanceOf[aut.State]
+            val state           = _state.asInstanceOf[aut.State]
 
             aut.outgoingTransitions(state) foreach {
               case (s, nextLbl) => {
@@ -381,7 +381,7 @@ class BricsTLabelEnumerator(labels: Iterator[(Char, Char)])
   private def calculateDisjointLabels(): MTreeSet[(Char, Char)] = {
     var disjoint = new MTreeSet[(Char, Char)]()
 
-    val mins = new MTreeSet[Char]
+    val mins  = new MTreeSet[Char]
     val maxes = new MTreeSet[Char]
     for ((min, max) <- labels) {
       mins += min
@@ -394,7 +394,7 @@ class BricsTLabelEnumerator(labels: Iterator[(Char, Char)])
     if (!imin.hasNext)
       return disjoint
 
-    var curMin = imin.next
+    var curMin  = imin.next
     var nextMax = imax.next
     while (imin.hasNext) {
       val nextMin = imin.next
@@ -453,7 +453,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
   import BricsAutomaton.toBAutomaton
 
-  type State = BState
+  type State  = BState
   type TLabel = (Char, Char)
 
   override val LabelOps = BricsTLabelOps
@@ -471,7 +471,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   /**
     * get parikh iamge of BricsAutomaton
     */
-  import ap.terfor.{Formula, Term, TerForConvenience, TermOrder, OneTerm}
+  import ap.terfor.{Formula, Term, TerForConvenience, TermOrder, OneTerm, VariableTerm}
   import scala.collection.mutable.{
     BitSet => MBitSet,
     HashMap => MHashMap,
@@ -517,22 +517,17 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         for ((s, n) <- transPreStates.iterator.zipWithIndex)
           s += n
 
-        var changed = true
-        while (changed) {
-          changed = false
+        var changed = false
+        do {
+          for (outgoing <- transPreStates) {
+            val oldSize = outgoing.size
 
-          for (i <- 0 until transPreStates.size) {
-            val set = transPreStates(i)
+            for (target <- outgoing)
+              outgoing |= transPreStates(target)
 
-            val oldSize = set.size
-            for (j <- 0 until transPreStates.size)
-              if (set contains j)
-                set |= transPreStates(j)
-
-            if (set.size > oldSize)
-              changed = true
+            changed = outgoing.size > oldSize
           }
-        }
+        } while (changed)
 
         transPreStates
       }
@@ -545,71 +540,112 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         for (finalState <- acceptingStates)
           yield {
             val finalStateInd = state2Index(finalState)
-            val refStates = transPreStates(finalStateInd)
+            val refStates     = transPreStates(finalStateInd)
 
+            // FIXME: remove self-loops maybe?
+            // FIXME: the initial state should appear (at least) twice now?
+            // FIXME: No need for concatenation: not ordered
+            // [to, Option[from] [labels]]
             val productions: List[(Int, Option[Int], List[Int])] =
               (if (refStates contains initialStateInd)
                  List((initialStateInd, None, List()))
-               else List()) :::
-                (for (state <- refStates.iterator;
+               else List()) ::: // FIXME: why concat?
+                (for (state    <- refStates.iterator;
                       preState <- preStates(state))
                   yield (state, Some(preState._1), preState._2)).toList
 
-            val (prodVars, zVars, sizeVar) = {
-              val prodVars =
-                for ((_, num) <- productions.zipWithIndex) yield v(num)
-              var nextVar = prodVars.size
-              val zVars = (for (state <- refStates.iterator) yield {
-                val ind = nextVar
-                nextVar = nextVar + 1
-                state -> v(ind)
-              }).toMap
-              (prodVars, zVars, v(nextVar))
+            val prodVars = productions.view.zipWithIndex.map {
+              case (_, i) => v(i)
             }
+            val zVars = refStates
+              .zip(Stream from prodVars.size)
+              .map {
+                case (state, index) =>
+                  state -> v(index)
+              }
+              .toMap
+
+            // Generate 0 - 2 variable -> coefficient * term mappings from a
+            // transition , eg.
+            // A TRANS TO would give
+            //   [A -> 1 * Y_A->B,
+            //    B -> -1 * Y_A->B]
+            def stateTermsFromTransition(
+                t: ((Int, Option[Int], Any), VariableTerm)
+            ): List[(Int, (IdealInt, VariableTerm))] =
+              t match {
+                // Ignore self-loops:
+                case ((to, from, _), _) if from == to => List()
+                case ((to, None, _), v)               => List(to -> (IdealInt.MINUS_ONE, v))
+                case ((to, Some(from), _), v) =>
+                  List(to -> (IdealInt.MINUS_ONE, v), from -> (IdealInt.ONE, v))
+              }
+
+            // Translate the weird output of groupBy to actual linear
+            // combinations using the coefficients generated by
+            // stateTermsFromTransition. For the final state, add +1 to the
+            // terms as per the algorithm.
+            def termsToLinearEq(
+                st: ((Int, List[(Int, (IdealInt, VariableTerm))]))
+            ): LinearCombination = {
+              val (state, state_terms) = st
+              val terms                = state_terms.map(_._2)
+
+              if (state == finalStateInd)
+                LinearCombination((IdealInt.ONE, OneTerm) :: terms, order)
+              else LinearCombination(terms, order)
+            }
+
+            // [((to, from, registers), Z_prod)]
+            val prodsWithVars = productions.zip(prodVars)
 
             // equations relating the production counters
             // consistent
-            val prodEqs =
-              (for (state <- refStates.iterator) yield {
-                LinearCombination(
-                  (if (state == finalStateInd)
-                     Iterator((IdealInt.ONE, OneTerm))
-                   else
-                     Iterator.empty) ++
-
-                    (for (((to, from, _), prodVar) <- productions.iterator zip prodVars.iterator;
-                          mult = (if (from contains state) 1 else 0) -
-                            (if (to == state) 1 else 0))
-                      yield (IdealInt(mult), prodVar)),
-                  order
-                )
-              }).toList
+            // Transition equations (for non-terminals)
+            // [Eq(0/1  +/- Y_transition_1, ..., +/- Y_transition_n),
+            // ... ] (+ for from, - for to), one per terminal involved
+            // NOTE: This is backwards compared to the paper: 1 on final, reversed sign on from/to
+            val prodEqs = prodsWithVars
+              .map(stateTermsFromTransition)
+              .flatten
+              .groupBy(_._1)        // group by state
+              .map(termsToLinearEq) // translate to each state's equation
+              .toList
 
             // registers
-            val rEqs =
-              (for ((r, i) <- registers.zipWithIndex) yield {
-                LinearCombination(
-                  Iterator((IdealInt.MINUS_ONE, InputAbsy2Internal(r, order)))
-                    ++
-                      (for (((_, from, vector), prodVar) <- productions.iterator zip prodVars.iterator
-                            if from != None)
-                        yield { (IdealInt(vector(i)), prodVar) }),
-                  order
-                )
-              }).toList
 
-            val entryZEq =
-              zVars(finalStateInd) - 1
+            // Create the terms for the register equation:
+            def makeRegisterTerms(ri: (ITerm, Int)): List[(IdealInt, Term)] = {
+              val (r, i) = ri
+              val prodTerms = prodsWithVars
+                .filter { case ((_, from, _), _) => from != None }
+                .map {
+                  case ((_, _, regs), prodVar) => (IdealInt(regs(i)), prodVar)
+                }
+
+              (IdealInt.MINUS_ONE, InputAbsy2Internal(r, order)) :: prodTerms
+            }
+
+            // for each register, generate a linear combination of -1 * r +
+            // [y_A->B * s(r)], where s(r) for each register r, where s(r) is
+            // the...state of register r at state s.
+            val rEqs = registers.zipWithIndex
+              .map(makeRegisterTerms)
+              .map(terms => LinearCombination(terms, order))
+              .toList
+
+            val entryZEq = zVars(finalStateInd) - 1
 
             val allEqs = eqZ(entryZEq :: prodEqs ::: rEqs)
 
-            val prodNonNeg =
-              prodVars >= 0
+            val prodNonNeg = prodVars >= 0
 
-            val prodImps =
-              (for (((to, _, _), prodVar) <- productions.iterator zip prodVars.iterator;
-                    if to != finalStateInd)
-                yield ((prodVar === 0) | (zVars(to) > 0))).toList
+            // Production implications: either we didn't use a production, or
+            // its corresponding target is greater than zero.
+            val prodImps = prodsWithVars
+              .filter{case ((to, _, _), _) => to != finalStateInd}
+              .map{case ((to, _, _), prodVar) => (prodVar === 0) | zVars(to) > 0}
+              .toList
 
             // connective
             val zImps =
@@ -776,7 +812,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
     */
   lazy val states: Iterable[State] = {
     // do this the hard way to give a deterministic ordering
-    val worklist = new MStack[State]
+    val worklist   = new MStack[State]
     val seenstates = new MLinkedHashSet[State]
 
     worklist.push(initialState)
