@@ -19,115 +19,116 @@
 package strsolver.preprop
 
 /**
- * Symbolic operations on input
- */
+  * Symbolic operations on input
+  */
 abstract class InputOp
+
 /**
- * Don't do anything with input character
- */
+  * Don't do anything with input character
+  */
 case object NOP extends InputOp
+
 /**
- * Replace input char with a special "internal symbol"
- */
+  * Replace input char with a special "internal symbol"
+  */
 case object Internal extends InputOp
-/**
- * Change input character by shifting (+0 to copy)
- */
-case class Plus(val n : Int) extends InputOp
 
 /**
- * Output operations for Brics Transducers: (u, o, v) where u is a
- * string to output first, o is an operation to translate the character
- * being read, and v is a string to output after.
- *
- * o can be +n or del
- */
-case class OutputOp(val preW : Seq[Char], val op : InputOp, val postW : Seq[Char])
+  * Change input character by shifting (+0 to copy)
+  */
+case class Plus(val n: Int) extends InputOp
 
+/**
+  * Output operations for Brics Transducers: (u, o, v) where u is a
+  * string to output first, o is an operation to translate the character
+  * being read, and v is a string to output after.
+  *
+  * o can be +n or del
+  */
+case class OutputOp(val preW: Seq[Char], val op: InputOp, val postW: Seq[Char])
 
 trait Transducer {
+
   /**
-   * Calculates regular language that is pre-image of the given regular
-   * language.  I.e. Pre_T(aut) for transducer T
-   *
-   * Convenience method for when there are no internal transitions
-   */
-  def preImage(aut : AtomicStateAutomaton) : AtomicStateAutomaton =
+    * Calculates regular language that is pre-image of the given regular
+    * language.  I.e. Pre_T(aut) for transducer T
+    *
+    * Convenience method for when there are no internal transitions
+    */
+  def preImage(aut: AtomicStateAutomaton): AtomicStateAutomaton =
     preImage(aut, Iterable.empty[(aut.State, aut.State)])
 
   /**
-   * Calculates regular language that is pre-image of the given regular
-   * language.  I.e. Pre_T(aut) for transducer T
-   *
-   * internal is a map indicating which states should be considered to
-   * have an Internal character between them.  I.e. map(s) contains s'
-   * if there is an internal transition between s and s'
-   */
-  def preImage[A <: AtomicStateAutomaton]
-              (aut : A,
-               internal : Iterable[(A#State, A#State)]) : AtomicStateAutomaton
+    * Calculates regular language that is pre-image of the given regular
+    * language.  I.e. Pre_T(aut) for transducer T
+    *
+    * internal is a map indicating which states should be considered to
+    * have an Internal character between them.  I.e. map(s) contains s'
+    * if there is an internal transition between s and s'
+    */
+  def preImage[A <: AtomicStateAutomaton](
+      aut: A,
+      internal: Iterable[(A#State, A#State)]
+  ): AtomicStateAutomaton
 
   /**
-   * Calculates regular language that is the post-image of the given regular
-   * language.  I.e. Post_T(aut) for transducer T.  Will fail if the
-   * transducer uses the internal char op. and internalApprox is None.
-   *
-   * internalApprox will nest the automaton internalApprox whenever an
-   * internal transition should have been output.
-   */
-  def postImage[A <: AtomicStateAutomaton]
-               (aut : A, internalApprox : Option[A] = None) : AtomicStateAutomaton
+    * Calculates regular language that is the post-image of the given regular
+    * language.  I.e. Post_T(aut) for transducer T.  Will fail if the
+    * transducer uses the internal char op. and internalApprox is None.
+    *
+    * internalApprox will nest the automaton internalApprox whenever an
+    * internal transition should have been output.
+    */
+  def postImage[A <: AtomicStateAutomaton](
+      aut: A,
+      internalApprox: Option[A] = None
+  ): AtomicStateAutomaton
 
   /**
-   * Apply the transducer to the input, replacing any internal
-   * characters with the given string.
-   *
-   * Assumes transducer is functional, so returns the first found output
-   * or None
-   */
-  def apply(input : String, internal : String = "") : Option[String]
+    * Apply the transducer to the input, replacing any internal
+    * characters with the given string.
+    *
+    * Assumes transducer is functional, so returns the first found output
+    * or None
+    */
+  def apply(input: String, internal: String = ""): Option[String]
 }
 
 trait TransducerBuilder[State, TLabel] {
-  /**
-   * Operations on labels
-   */
-  val LabelOps : TLabelOps[TLabel]
 
   /**
-   * Initial state of transducer being built
-   */
-  def initialState : State
+    * Operations on labels
+    */
+  val LabelOps: TLabelOps[TLabel]
 
   /**
-   * A fresh state that can be added to the transducer
-   */
-  def getNewState : State
+    * Initial state of transducer being built
+    */
+  def initialState: State
 
   /**
-   * Set whether a state is accepting
-   */
-  def setAccept(s : State, isAccept : Boolean) : Unit
+    * A fresh state that can be added to the transducer
+    */
+  def getNewState: State
 
   /**
-   * Add a transition to the transducer
-   */
-  def addTransition(s1 : State,
-                    lbl : TLabel,
-                    op : OutputOp,
-                    s2 : State) : Unit
+    * Set whether a state is accepting
+    */
+  def setAccept(s: State, isAccept: Boolean): Unit
 
   /**
-   * Add a e-transition to the transducer
-   */
-  def addETransition(s1 : State,
-                    op : OutputOp,
-                    s2 : State) : Unit
+    * Add a transition to the transducer
+    */
+  def addTransition(s1: State, lbl: TLabel, op: OutputOp, s2: State): Unit
 
   /**
-   * The transducer built.  Builder should not be used after call to
-   * this
-   */
-  def getTransducer : Transducer
+    * Add a e-transition to the transducer
+    */
+  def addETransition(s1: State, op: OutputOp, s2: State): Unit
+
+  /**
+    * The transducer built.  Builder should not be used after call to
+    * this
+    */
+  def getTransducer: Transducer
 }
-

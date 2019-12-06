@@ -25,12 +25,12 @@ import ap.parser._
 import preprop.PreOp
 
 /**
- * Object to manage simpler definitions of "user" functions
- *
- * To easily add a new function, define a PreOp object for the function,
- * then call UserFunction.registerFunction(name, arity, preOp) before
- * any calls to main are made
- */
+  * Object to manage simpler definitions of "user" functions
+  *
+  * To easily add a new function, define a PreOp object for the function,
+  * then call UserFunction.registerFunction(name, arity, preOp) before
+  * any calls to main are made
+  */
 object UserFunctionRegistry {
   // from StringTheory names to preops
   val preOpMap = new MHashMap[String, PreOp]
@@ -42,9 +42,9 @@ object UserFunctionRegistry {
   val smtFuns = new MHashMap[String, IFunction]
 
   /**
-   * Call before main function.  Register a new function.
-   */
-  def registerFunction(name : String, arity : Integer, preOp : PreOp) : Unit = {
+    * Call before main function.  Register a new function.
+    */
+  def registerFunction(name: String, arity: Integer, preOp: PreOp): Unit = {
     val smtname = name
     val strname = "user_" + name
     val smtfun = new IFunction(smtname, arity, true, false)
@@ -56,29 +56,33 @@ object UserFunctionRegistry {
     smtFuns += (smtname -> smtfun)
   }
 
-  def getPreOp(name : String) : Option[PreOp] = preOpMap.get(name)
+  def getPreOp(name: String): Option[PreOp] = preOpMap.get(name)
 
-  def isUserDefinedSMTLIBFun(name : String) : Boolean = smtlibTranslate.contains(name)
+  def isUserDefinedSMTLIBFun(name: String): Boolean =
+    smtlibTranslate.contains(name)
 
-  def isUserDefinedStringTheoryFun(name : String) : Boolean = preOpMap.contains(name)
+  def isUserDefinedStringTheoryFun(name: String): Boolean =
+    preOpMap.contains(name)
 
   /**
-   * Translate from an SMTLIBStringTheory name to a StringTheory name
-   */
-  def getStringTheoryName(name : String) : Option[String] = smtlibTranslate.get(name)
+    * Translate from an SMTLIBStringTheory name to a StringTheory name
+    */
+  def getStringTheoryName(name: String): Option[String] =
+    smtlibTranslate.get(name)
 
-  def getSMTLIBStringTheoryFun(name : String) : Option[IFunction] = smtFuns.get(name)
+  def getSMTLIBStringTheoryFun(name: String): Option[IFunction] =
+    smtFuns.get(name)
 
-  def getStringTheoryFun(name : String) : Option[IFunction] = strFuns.get(name)
+  def getStringTheoryFun(name: String): Option[IFunction] = strFuns.get(name)
 
   //////////////////////////////////////////////////////////////////
   // Load from UserFunctions
 
-  for ((n, a, p) <- UserFunctions.functions){
+  for ((n, a, p) <- UserFunctions.functions) {
     registerFunction(n, a, p)
   }
 
-  val stringTheoryFuns : Iterable[IFunction] = strFuns.values
+  val stringTheoryFuns: Iterable[IFunction] = strFuns.values
 
-  val SMTLIBStringTheoryFuns : Iterable[IFunction] = smtFuns.values
+  val SMTLIBStringTheoryFuns: Iterable[IFunction] = smtFuns.values
 }

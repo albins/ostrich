@@ -21,16 +21,17 @@ package strsolver.preprop
 import strsolver.UserFunctions
 
 /**
- * Pre-image computation for the reverse operator.
- */
+  * Pre-image computation for the reverse operator.
+  */
 object ReversePreOp extends PreOp {
 
-  def apply(argumentConstraints : Seq[Seq[Automaton]],
-            resultConstraint : Automaton)
-          : (Iterator[(Seq[Automaton], LinearConstraints)], Seq[Seq[Automaton]]) =
+  def apply(
+      argumentConstraints: Seq[Seq[Automaton]],
+      resultConstraint: Automaton
+  ): (Iterator[(Seq[Automaton], LinearConstraints)], Seq[Seq[Automaton]]) =
     resultConstraint match {
       // huzi add ----------------------------------------------------------------------
-      case resultConstraint : BricsAutomaton => {
+      case resultConstraint: BricsAutomaton => {
         val a = new LinearConstraints
         val reverseAut = ReverseBAutomaton(resultConstraint)
         (Iterator((Seq(reverseAut), a)), List())
@@ -41,13 +42,18 @@ object ReversePreOp extends PreOp {
         throw new IllegalArgumentException
     }
 
-  def eval(arguments : Seq[Seq[Int]]) : Option[Seq[Int]] =
+  def eval(arguments: Seq[Seq[Int]]): Option[Seq[Int]] =
     Some(arguments(0).reverse)
 
-  override def forwardApprox(argumentConstraints : Seq[Seq[Automaton]]) : Automaton = {
+  override def forwardApprox(
+      argumentConstraints: Seq[Seq[Automaton]]
+  ): Automaton = {
     val cons = argumentConstraints(0).map(_ match {
-        case saut : AtomicStateAutomaton => saut
-        case _ => throw new IllegalArgumentException("ConcatPreOp.forwardApprox can only approximate AtomicStateAutomata")
+      case saut: AtomicStateAutomaton => saut
+      case _ =>
+        throw new IllegalArgumentException(
+          "ConcatPreOp.forwardApprox can only approximate AtomicStateAutomata"
+        )
     })
     val prod = ProductAutomaton(cons)
     ReverseAutomaton(prod)
@@ -56,4 +62,3 @@ object ReversePreOp extends PreOp {
   override def toString = "reverse"
 
 }
-

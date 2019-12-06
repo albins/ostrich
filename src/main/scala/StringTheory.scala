@@ -31,144 +31,172 @@ import ap.proof.goal.Goal
 import ap.util.Seqs
 
 import scala.collection.mutable
-import scala.collection.mutable.{ArrayBuffer, LinkedHashMap, LinkedHashSet, HashMap => MHashMap, HashSet => MHashSet}
+import scala.collection.mutable.{
+  ArrayBuffer,
+  LinkedHashMap,
+  LinkedHashSet,
+  HashMap => MHashMap,
+  HashSet => MHashSet
+}
 
 object StringTheory extends Theory {
 
   override def toString = "StringTheory"
 
   // TODO: use proper sorts for the operations
-                                //  name     arity partial relational
-                                //    ↓        ↓    ↓     ↓
-  val wordEps    = new IFunction("wordEps",    0, true, false)
-  val wordCat    = new IFunction("wordCat",    2, true, false)
-  val wordChar   = new IFunction("wordChar",   1, true, false)
+  //  name     arity partial relational
+  //    ↓        ↓    ↓     ↓
+  val wordEps = new IFunction("wordEps", 0, true, false)
+  val wordCat = new IFunction("wordCat", 2, true, false)
+  val wordChar = new IFunction("wordChar", 1, true, false)
 
-  val wordLen    = new IFunction("wordLen",    1, true, false)    // length func
+  val wordLen = new IFunction("wordLen", 1, true, false) // length func
 
   // defined operation
-  val wordSlice  = new IFunction("wordSlice",  3, true, false)
+  val wordSlice = new IFunction("wordSlice", 3, true, false)
 
-  val rexEmpty   = new IFunction("rexEmpty",   0, true, false)
-  val rexEps     = new IFunction("rexEps",     0, true, false)
-  val rexSigma   = new IFunction("rexSigma",   0, true, false)
-  val rexCat     = new IFunction("rexCat",     2, true, false)
-  val rexChar    = new IFunction("rexChar",    1, true, false)
-  val rexUnion   = new IFunction("rexUnion",   2, true, false)
-  val rexStar    = new IFunction("rexStar",    1, true, false)
-  val rexNeg     = new IFunction("rexNeg",     1, true, false)
-  val rexRange   = new IFunction("rexRange",   2, true, false)
+  val rexEmpty = new IFunction("rexEmpty", 0, true, false)
+  val rexEps = new IFunction("rexEps", 0, true, false)
+  val rexSigma = new IFunction("rexSigma", 0, true, false)
+  val rexCat = new IFunction("rexCat", 2, true, false)
+  val rexChar = new IFunction("rexChar", 1, true, false)
+  val rexUnion = new IFunction("rexUnion", 2, true, false)
+  val rexStar = new IFunction("rexStar", 1, true, false)
+  val rexNeg = new IFunction("rexNeg", 1, true, false)
+  val rexRange = new IFunction("rexRange", 2, true, false)
 
   /// Constraints representing transducers
-  val replaceall = new IFunction("replaceall", 3, true, false)  // pattern is a concreteword
-  val replaceallre = new IFunction("replaceallre", 3, true, false)  // pattern is a regex
-  val replace    = new IFunction("replace",    3, true, false)  // pattern is a concreteword
-  val replacere  = new IFunction("replacere",  3, true, false)  // pattern is a regex
-  val reverse    = new IFunction("reverse",    1, true, false)
-  val wordDiff   = new Predicate("wordDiff",   2)
+  val replaceall = new IFunction("replaceall", 3, true, false) // pattern is a concreteword
+  val replaceallre = new IFunction("replaceallre", 3, true, false) // pattern is a regex
+  val replace = new IFunction("replace", 3, true, false) // pattern is a concreteword
+  val replacere = new IFunction("replacere", 3, true, false) // pattern is a regex
+  val reverse = new IFunction("reverse", 1, true, false)
+  val wordDiff = new Predicate("wordDiff", 2)
 
   // hu zi add -------------------------------------------------------------------
-  val substring  = new IFunction("substring",  3, true, false)
-  val indexof    = new IFunction("indexof",    3, true, false)
-  val str_contains = new Predicate("str_contains",    2)
-  val str_prefixof = new Predicate("str_prefixof",    2)
-  val str_at     = new IFunction("str_at",     2, true, false)
+  val substring = new IFunction("substring", 3, true, false)
+  val indexof = new IFunction("indexof", 3, true, false)
+  val str_contains = new Predicate("str_contains", 2)
+  val str_prefixof = new Predicate("str_prefixof", 2)
+  val str_at = new IFunction("str_at", 2, true, false)
   // hu zi add -------------------------------------------------------------------
 
-  val member     = new Predicate ("member",    2)
+  val member = new Predicate("member", 2)
 
-  def word(ts : AnyRef*) = {
+  def word(ts: AnyRef*) = {
     import IExpression._
-    val it = for (t <- ts.iterator;
-                  s <- t match {
-                         case t : String =>
-                           for (c <- t.iterator) yield wordChar(c.toInt)
-                         case t : IdealInt =>
-                           Iterator single wordChar(t)
-                         case t : Seq[_] =>
-                           for (c <- t.iterator) yield c match {
-                             case c : IdealInt => wordChar(c)
-                             case c : Int      => wordChar(c)
-                           }
-                         case t : ITerm =>
-                           Iterator single t
-                         case t : ConstantTerm =>
-                           Iterator single i(t)
-                       }) yield s
+    val it =
+      for (t <- ts.iterator;
+           s <- t match {
+             case t: String =>
+               for (c <- t.iterator) yield wordChar(c.toInt)
+             case t: IdealInt =>
+               Iterator single wordChar(t)
+             case t: Seq[_] =>
+               for (c <- t.iterator) yield c match {
+                 case c: IdealInt => wordChar(c)
+                 case c: Int      => wordChar(c)
+               }
+             case t: ITerm =>
+               Iterator single t
+             case t: ConstantTerm =>
+               Iterator single i(t)
+           }) yield s
     if (it.hasNext)
-      it reduceLeft { (a, b) => wordCat(a, b) }
-    else
+      it reduceLeft { (a, b) =>
+        wordCat(a, b)
+      } else
       wordEps()
   }
 
-  def rex(ts : AnyRef*) : ITerm = {
+  def rex(ts: AnyRef*): ITerm = {
     import IExpression._
-    val it = for (t <- ts.iterator;
-                  s <- t match {
-                         case t@IFunApp(`rexEmpty`, _) =>
-                           return t
-                         case IFunApp(`rexEps`, _) =>
-                           Iterator.empty
-                         case t : ITerm =>
-                           Iterator single t
-                         case t : ConstantTerm =>
-                           Iterator single i(t)
-                         case t : String =>
-                           for (c <- t.iterator) yield rexChar(c.toInt)
-                         case t : IdealInt =>
-                           Iterator single rexChar(t)
-                         case t : Seq[_] =>
-                           for (c <- t.iterator) yield  c match {
-                             case c : IdealInt => rexChar(c)
-                             case c : Int      => rexChar(c)
-                           }
-                       }) yield s
+    val it =
+      for (t <- ts.iterator;
+           s <- t match {
+             case t @ IFunApp(`rexEmpty`, _) =>
+               return t
+             case IFunApp(`rexEps`, _) =>
+               Iterator.empty
+             case t: ITerm =>
+               Iterator single t
+             case t: ConstantTerm =>
+               Iterator single i(t)
+             case t: String =>
+               for (c <- t.iterator) yield rexChar(c.toInt)
+             case t: IdealInt =>
+               Iterator single rexChar(t)
+             case t: Seq[_] =>
+               for (c <- t.iterator) yield c match {
+                 case c: IdealInt => rexChar(c)
+                 case c: Int      => rexChar(c)
+               }
+           }) yield s
     if (it.hasNext)
-      it reduceLeft { (a, b) => rexCat(a, b) }
-    else
+      it reduceLeft { (a, b) =>
+        rexCat(a, b)
+      } else
       rexEps()
   }
 
-  def union(ts : AnyRef*) : ITerm = {
+  def union(ts: AnyRef*): ITerm = {
     import IExpression._
-    val it = for (t <- ts.iterator;
-                  te = rex(t);
-                  if (te != rexEmpty()))
-             yield te
+    val it =
+      for (t <- ts.iterator;
+           te = rex(t);
+           if (te != rexEmpty()))
+        yield te
     if (it.hasNext)
-      it reduceLeft { (a, b) => rexUnion(a, b) }
-    else
+      it reduceLeft { (a, b) =>
+        rexUnion(a, b)
+      } else
       rexEmpty()
   }
 
-  def star(ts : AnyRef*) : ITerm = {
+  def star(ts: AnyRef*): ITerm = {
     import IExpression._
-    rex(ts : _*) match {
-      case t@IFunApp(`rexEps`, _) => t
-      case IFunApp(`rexEmpty`, _) => rexEps()
-      case t                      => rexStar(t)
+    rex(ts: _*) match {
+      case t @ IFunApp(`rexEps`, _) => t
+      case IFunApp(`rexEmpty`, _)   => rexEps()
+      case t                        => rexStar(t)
     }
   }
 
   //////////////////////////////////////////////////////////////////////////////
 
-  val functions = List(wordEps, wordCat, wordChar, wordLen, wordSlice,
-                       rexEmpty, rexEps, rexSigma, rexCat, rexChar,
-                       rexUnion, rexStar, rexNeg, rexRange, replaceall,
-                       replaceallre, replace, reverse,
-  // hu zi add -------------------------------------------------------------------
-                       substring, indexof, str_at) ++
-  // hu zi add -------------------------------------------------------------------
-                  UserFunctionRegistry.stringTheoryFuns
+  val functions = List(
+    wordEps,
+    wordCat,
+    wordChar,
+    wordLen,
+    wordSlice,
+    rexEmpty,
+    rexEps,
+    rexSigma,
+    rexCat,
+    rexChar,
+    rexUnion,
+    rexStar,
+    rexNeg,
+    rexRange,
+    replaceall,
+    replaceallre,
+    replace,
+    reverse,
+    // hu zi add -------------------------------------------------------------------
+    substring,
+    indexof,
+    str_at
+  ) ++
+    // hu zi add -------------------------------------------------------------------
+    UserFunctionRegistry.stringTheoryFuns
 
   // TODO: have different theory objects for the different solvers
   val iAxioms =
     IBoolLit(true)
 
-  val (functionalPredicatesSeq, preAxioms, preOrder,
-       functionPredicateMap) =
-    Theory.genAxioms(theoryFunctions = functions,
-                     theoryAxioms = iAxioms)
+  val (functionalPredicatesSeq, preAxioms, preOrder, functionPredicateMap) =
+    Theory.genAxioms(theoryFunctions = functions, theoryAxioms = iAxioms)
 
   val functionPredicateMapping = functions zip functionalPredicatesSeq
   // huzi modify------------------------
@@ -182,7 +210,7 @@ object StringTheory extends Theory {
     (for ((f, p) <- functionPredicateMap) yield (p, f)).toMap
 
   object FunPred {
-    def unapply(p : Predicate) : Option[IFunction] = predFunMap get p
+    def unapply(p: Predicate): Option[IFunction] = predFunMap get p
   }
 
   private val p = functionPredicateMap
@@ -190,68 +218,72 @@ object StringTheory extends Theory {
   val axioms =
     Conjunction.TRUE
 
-  val predicateMatchConfig : Signature.PredicateMatchConfig = Map()
-  val triggerRelevantFunctions : Set[IFunction] = functions.toSet
+  val predicateMatchConfig: Signature.PredicateMatchConfig = Map()
+  val triggerRelevantFunctions: Set[IFunction] = functions.toSet
 
   //////////////////////////////////////////////////////////////////////////////
 
-  def plugin = Some(new Plugin {
+  def plugin =
+    Some(new Plugin {
 
-    def asConst(lc : LinearCombination) = {
-      assert(lc.size == 1 &&
-             lc.leadingCoeff.isOne &&
-             lc.leadingTerm.isInstanceOf[ConstantTerm])
-      lc.leadingTerm.asInstanceOf[ConstantTerm]
-    }
+      def asConst(lc: LinearCombination) = {
+        assert(
+          lc.size == 1 &&
+            lc.leadingCoeff.isOne &&
+            lc.leadingTerm.isInstanceOf[ConstantTerm]
+        )
+        lc.leadingTerm.asInstanceOf[ConstantTerm]
+      }
 
-    ////////////////////////////////////////////////////////////////////////////
+      ////////////////////////////////////////////////////////////////////////////
 
-    // not used
-    def generateAxioms(goal : Goal)
-          : Option[(Conjunction, Conjunction)] = None
+      // not used
+      def generateAxioms(goal: Goal): Option[(Conjunction, Conjunction)] = None
 
-    ////////////////////////////////////////////////////////////////////////////
+      ////////////////////////////////////////////////////////////////////////////
 
-    // private val afaSolver = new AFASolver
-    private val prepropSolver = new PrepropSolver
+      // private val afaSolver = new AFASolver
+      private val prepropSolver = new PrepropSolver
 
-    private val modelCache =
-      new ap.util.LRUCache[Conjunction,
-                           Option[Map[Term, List[Either[Int, Term]]]]](3)
+      private val modelCache =
+        new ap.util.LRUCache[Conjunction, Option[
+          Map[Term, List[Either[Int, Term]]]
+        ]](3)
 
-    private def findStringModel(goal : Goal)
-                              : Option[Map[Term, List[Either[Int, Term]]]] =
-      modelCache(goal.facts) {
-                for (m <- prepropSolver.findStringModel(goal)) yield {
-                  m mapValues (w => w map (Left(_)))
-                }
+      private def findStringModel(
+          goal: Goal
+      ): Option[Map[Term, List[Either[Int, Term]]]] =
+        modelCache(goal.facts) {
+          for (m <- prepropSolver.findStringModel(goal)) yield {
+            m mapValues (w => w map (Left(_)))
+          }
 //            }
-      }
-
-    override def handleGoal(goal : Goal)
-                       : Seq[Plugin.Action] = goalState(goal) match {
-
-      case Plugin.GoalState.Final => Console.withOut(Console.err) {
-
-        breakCyclicEquations(goal) match {
-          case Some(actions) =>
-            actions
-          case None =>
-                findStringModel(goal) match {
-                  case Some(model) => List()
-                  case None        => List(Plugin.AddFormula(Conjunction.TRUE))
-                }
-
         }
-      }
 
-      case _ => List()
-    }
+      override def handleGoal(goal: Goal): Seq[Plugin.Action] =
+        goalState(goal) match {
 
-    ////////////////////////////////////////////////////////////////////////////
+          case Plugin.GoalState.Final =>
+            Console.withOut(Console.err) {
 
-    override def generateModel(goal : Goal)
-                              : Option[Conjunction] = { // Console.withOut(Console.err) {
+              breakCyclicEquations(goal) match {
+                case Some(actions) =>
+                  actions
+                case None =>
+                  findStringModel(goal) match {
+                    case Some(model) => List()
+                    case None        => List(Plugin.AddFormula(Conjunction.TRUE))
+                  }
+
+              }
+            }
+
+          case _ => List()
+        }
+
+      ////////////////////////////////////////////////////////////////////////////
+
+      override def generateModel(goal: Goal): Option[Conjunction] = { // Console.withOut(Console.err) {
 
         import TerForConvenience._
         implicit val _ = goal.order
@@ -262,10 +294,10 @@ object StringTheory extends Theory {
         val definedStrings = new MHashMap[Seq[Int], Int]
         val stringDefPreds = new ArrayBuffer[Formula]
 
-        def idFor(s : Seq[Int]) =
+        def idFor(s: Seq[Int]) =
           definedStrings.getOrElseUpdate(s, definedStrings.size)
 
-        def addString(s : List[Int]) : Int = s match {
+        def addString(s: List[Int]): Int = s match {
           case List() => {
             val id = idFor(List())
             stringDefPreds += p(wordEps)(List(l(id)))
@@ -294,13 +326,15 @@ object StringTheory extends Theory {
 
         // Add solutions from the string solver, if there are any
         findStringModel(goal) match {
-          case None => throw new IllegalArgumentException(
-                         "string solver unexpectedly says unsat")
+          case None =>
+            throw new IllegalArgumentException(
+              "string solver unexpectedly says unsat"
+            )
           case Some(stringModel) => {
             for ((t, w) <- stringModel) {
               val lhs = t match {
-                case c : ConstantTerm => c
-                case lh : LinearCombination if lh.size == 1 =>
+                case c: ConstantTerm => c
+                case lh: LinearCombination if lh.size == 1 =>
                   lh.leadingTerm.asInstanceOf[ConstantTerm]
               }
               stringMap.put(lhs, w map (_.left.get))
@@ -348,7 +382,7 @@ object StringTheory extends Theory {
              if (!a(0).isConstant))
           (stringMap get asConst(a(1))) match {
             case Some(Seq(c)) => stringDefPreds += (a(0) === c)
-            case _ => assert(false)
+            case _            => assert(false)
           }
 
         // add values for word lengths
@@ -358,16 +392,20 @@ object StringTheory extends Theory {
 
         val definingPreds = conj(stringDefPreds)
 // println(definingPreds)
-        val predsToRemove = predicates.toSet -- List(p(wordEps), p(wordCat), p(wordChar))
+        val predsToRemove = predicates.toSet -- List(
+          p(wordEps),
+          p(wordCat),
+          p(wordChar)
+        )
         val newAtoms =
-          atoms.updateLitsSubset(atoms.positiveLits filterNot {
-                                   a => predsToRemove contains a.pred },
-                                 atoms.negativeLits filterNot {
-                                   a => predsToRemove contains a.pred },
-                                 goal.order)
+          atoms.updateLitsSubset(atoms.positiveLits filterNot { a =>
+            predsToRemove contains a.pred
+          }, atoms.negativeLits filterNot { a =>
+            predsToRemove contains a.pred
+          }, goal.order)
         Some(goal.facts.updatePredConj(newAtoms) & definingPreds)
       }
-  })
+    })
 
   //////////////////////////////////////////////////////////////////////////////
 
@@ -376,154 +414,163 @@ object StringTheory extends Theory {
   // e.g., equations x = yz & y = ax  ->  z = eps & a = eps & y = ax
   // Tarjan's algorithm is used to find all strongly connected components
 
-  private def breakCyclicEquations(goal : Goal)
-                    : Option[Seq[Plugin.Action]] = {
+  private def breakCyclicEquations(goal: Goal): Option[Seq[Plugin.Action]] = {
 
-      import TerForConvenience._
-      implicit val _ = goal.order
+    import TerForConvenience._
+    implicit val _ = goal.order
 
-      val newAtoms = new ArrayBuffer[PAtom]
-      val removedAtoms = new ArrayBuffer[PAtom]
+    val newAtoms = new ArrayBuffer[PAtom]
+    val removedAtoms = new ArrayBuffer[PAtom]
 
-      {
-        val wordCatAtoms = goal.facts.predConj positiveLitsWithPred p(wordCat)
-        val successors = wordCatAtoms groupBy (_(2))
+    {
+      val wordCatAtoms = goal.facts.predConj positiveLitsWithPred p(wordCat)
+      val successors = wordCatAtoms groupBy (_(2))
 
-        val index, lowlink = new MHashMap[LinearCombination, Int]
-        val stack = new LinkedHashSet[LinearCombination]
-        val component = new MHashSet[LinearCombination]
-        val cycle = new LinkedHashMap[LinearCombination, (PAtom, LinearCombination)]
+      val index, lowlink = new MHashMap[LinearCombination, Int]
+      val stack = new LinkedHashSet[LinearCombination]
+      val component = new MHashSet[LinearCombination]
+      val cycle =
+        new LinkedHashMap[LinearCombination, (PAtom, LinearCombination)]
 
-        def connect(v : LinearCombination) : Unit = {
-          val vIndex = index.size
-          index.put(v, vIndex)
-          lowlink.put(v, vIndex)
-          stack += v
+      def connect(v: LinearCombination): Unit = {
+        val vIndex = index.size
+        index.put(v, vIndex)
+        lowlink.put(v, vIndex)
+        stack += v
 
-          for (a <- successors.getOrElse(v, List()).iterator;
-               w <- Seqs.doubleIterator(a(0), a(1)))
-            (index get w) match {
-              case Some(wIndex) =>
-                if (stack contains w)
-                  lowlink.put(v, lowlink(v) min index(w))
-              case None => {
-                connect(w)
-                lowlink.put(v, lowlink(v) min lowlink(w))
-              }
+        for (a <- successors.getOrElse(v, List()).iterator;
+             w <- Seqs.doubleIterator(a(0), a(1)))
+          (index get w) match {
+            case Some(wIndex) =>
+              if (stack contains w)
+                lowlink.put(v, lowlink(v) min index(w))
+            case None => {
+              connect(w)
+              lowlink.put(v, lowlink(v) min lowlink(w))
             }
+          }
 
-          if (lowlink(v) == vIndex) {
-            // found a strongly connected component
-            var next = stack.last
+        if (lowlink(v) == vIndex) {
+          // found a strongly connected component
+          var next = stack.last
+          stack remove next
+          component += next
+          while (next != v) {
+            next = stack.last
             stack remove next
             component += next
-            while (next != v) {
-              next = stack.last
-              stack remove next
-              component += next
-            }
+          }
 
 //              println(component.toList)
 
-            // check whether we can construct a cycle within the
-            // component
-            var curNode = v
-            while (curNode != null && !(cycle contains curNode)) {
-              val it = successors.getOrElse(curNode, List()).iterator
-              var atom : PAtom = null
-              var nextNode : LinearCombination = null
-              var sideNode : LinearCombination = null
+          // check whether we can construct a cycle within the
+          // component
+          var curNode = v
+          while (curNode != null && !(cycle contains curNode)) {
+            val it = successors.getOrElse(curNode, List()).iterator
+            var atom: PAtom = null
+            var nextNode: LinearCombination = null
+            var sideNode: LinearCombination = null
 
-              while (atom == null && it.hasNext) {
-                val a = it.next
-                if (component contains a(0)) {
-                  atom = a
-                  nextNode = a(0)
-                  sideNode = a(1)
-                } else if (component contains a(1)) {
-                  atom = a
-                  nextNode = a(1)
-                  sideNode = a(0)
-                }
-              }
-
-              if (atom != null)
-                cycle.put(curNode, (atom, sideNode))
-              curNode = nextNode
-            }
-
-            if (curNode != null) {
-              // then we have found a cycle
-              var started = false
-              for ((v, (a, w)) <- cycle) {
-                if (!started && v == curNode) {
-                  removedAtoms += a
-                  started = true
-                }
-
-                if (started)
-                  newAtoms += p(wordEps)(List(w))
+            while (atom == null && it.hasNext) {
+              val a = it.next
+              if (component contains a(0)) {
+                atom = a
+                nextNode = a(0)
+                sideNode = a(1)
+              } else if (component contains a(1)) {
+                atom = a
+                nextNode = a(1)
+                sideNode = a(0)
               }
             }
 
-            component.clear
-            cycle.clear
+            if (atom != null)
+              cycle.put(curNode, (atom, sideNode))
+            curNode = nextNode
           }
-        }
 
-        for (v <- successors.keysIterator)
-          if (!(index contains v))
-            connect(v)
+          if (curNode != null) {
+            // then we have found a cycle
+            var started = false
+            for ((v, (a, w)) <- cycle) {
+              if (!started && v == curNode) {
+                removedAtoms += a
+                started = true
+              }
+
+              if (started)
+                newAtoms += p(wordEps)(List(w))
+            }
+          }
+
+          component.clear
+          cycle.clear
+        }
       }
 
-      ////////////////////////////////////////////////////////////////////////
+      for (v <- successors.keysIterator)
+        if (!(index contains v))
+          connect(v)
+    }
 
-      if (newAtoms.nonEmpty || removedAtoms.nonEmpty)
-        Some(List(Plugin.RemoveFacts(conj(removedAtoms)),
-                  Plugin.AddFormula(!conj(newAtoms))))
-      else
-        None
+    ////////////////////////////////////////////////////////////////////////
+
+    if (newAtoms.nonEmpty || removedAtoms.nonEmpty)
+      Some(
+        List(
+          Plugin.RemoveFacts(conj(removedAtoms)),
+          Plugin.AddFormula(!conj(newAtoms))
+        )
+      )
+    else
+      None
 
   }
 
   //////////////////////////////////////////////////////////////////////////////
 
   override def isSoundForSat(
-         theories : Seq[Theory],
-         config : Theory.SatSoundnessConfig.Value) : Boolean =
+      theories: Seq[Theory],
+      config: Theory.SatSoundnessConfig.Value
+  ): Boolean =
     theories.size == 1 &&
-    (Set(Theory.SatSoundnessConfig.Elementary,
-         Theory.SatSoundnessConfig.Existential) contains config)
+      (Set(
+        Theory.SatSoundnessConfig.Elementary,
+        Theory.SatSoundnessConfig.Existential
+      ) contains config)
 
-  case class DecoderData(m : Map[IdealInt, Seq[IdealInt]])
-       extends Theory.TheoryDecoderData
+  case class DecoderData(m: Map[IdealInt, Seq[IdealInt]])
+      extends Theory.TheoryDecoderData
 
   val asSeq = new Theory.Decoder[Seq[IdealInt]] {
-    def apply(d : IdealInt)
-             (implicit ctxt : Theory.DecoderContext) : Seq[IdealInt] =
+    def apply(
+        d: IdealInt
+    )(implicit ctxt: Theory.DecoderContext): Seq[IdealInt] =
       (ctxt getDataFor StringTheory.this) match {
         case DecoderData(m) => m(d)
       }
   }
 
   val asString = new Theory.Decoder[String] {
-    def apply(d : IdealInt)
-             (implicit ctxt : Theory.DecoderContext) : String =
+    def apply(d: IdealInt)(implicit ctxt: Theory.DecoderContext): String =
       asStringPartial(d).get
   }
 
   val asStringPartial = new Theory.Decoder[Option[String]] {
-    def apply(d : IdealInt)
-             (implicit ctxt : Theory.DecoderContext) : Option[String] =
+    def apply(
+        d: IdealInt
+    )(implicit ctxt: Theory.DecoderContext): Option[String] =
       (ctxt getDataFor StringTheory.this) match {
         case DecoderData(m) =>
           for (s <- m get d)
-          yield ("" /: s) { case (res, c) => res + c.intValueSafe.toChar }
+            yield ("" /: s) { case (res, c) => res + c.intValueSafe.toChar }
       }
   }
 
-  override def generateDecoderData(model : Conjunction)
-                                  : Option[Theory.TheoryDecoderData] = {
+  override def generateDecoderData(
+      model: Conjunction
+  ): Option[Theory.TheoryDecoderData] = {
     val atoms = model.predConj
 
     val stringMap = new MHashMap[IdealInt, Seq[IdealInt]]
@@ -552,6 +599,6 @@ object StringTheory extends Theory {
   //////////////////////////////////////////////////////////////////////////////
 
   object NullStream extends java.io.OutputStream {
-    def write(b : Int) = {}
+    def write(b: Int) = {}
   }
 }

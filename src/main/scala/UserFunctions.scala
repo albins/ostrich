@@ -19,15 +19,16 @@
 package strsolver
 
 /**
- * Convenience object to store user functions -- these are loaded by
- * UserFunctionRegistry
- */
+  * Convenience object to store user functions -- these are loaded by
+  * UserFunctionRegistry
+  */
 object UserFunctions {
+
   /**
-   * List of functions in the format
-   *
-   *   (<name> , <arity>, <PreOp object>)
-   */
+    * List of functions in the format
+    *
+    *   (<name> , <arity>, <PreOp object>)
+    */
   val functions = List(
     ("user_reverse", 1, strsolver.preprop.ReversePreOp)
   )

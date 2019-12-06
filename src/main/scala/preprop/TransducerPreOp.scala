@@ -21,37 +21,46 @@ package strsolver.preprop
 import scala.collection.breakOut
 
 object TransducerPreOp {
-  def apply(t : Transducer) = new TransducerPreOp(t)
+  def apply(t: Transducer) = new TransducerPreOp(t)
 }
 
 /**
-* Representation of x = T(y)
-*/
-class TransducerPreOp(t : Transducer) extends PreOp {
+  * Representation of x = T(y)
+  */
+class TransducerPreOp(t: Transducer) extends PreOp {
 
   override def toString = "transducer"
 
-  def eval(arguments : Seq[Seq[Int]]) : Option[Seq[Int]] = {
-    assert (arguments.size == 1)
+  def eval(arguments: Seq[Seq[Int]]): Option[Seq[Int]] = {
+    assert(arguments.size == 1)
     val arg = arguments(0).map(_.toChar).mkString
     for (s <- t(arg)) yield s.toSeq.map(_.toInt)
   }
 
-  def apply(argumentConstraints : Seq[Seq[Automaton]],
-            resultConstraint : Automaton)
-          : (Iterator[(Seq[Automaton], LinearConstraints)], Seq[Seq[Automaton]]) = {
-    val rc : AtomicStateAutomaton = resultConstraint match {
-      case resCon : AtomicStateAutomaton => resCon
-      case _ => throw new IllegalArgumentException("TransducerPreOp needs an AtomicStateAutomaton")
+  def apply(
+      argumentConstraints: Seq[Seq[Automaton]],
+      resultConstraint: Automaton
+  ): (Iterator[(Seq[Automaton], LinearConstraints)], Seq[Seq[Automaton]]) = {
+    val rc: AtomicStateAutomaton = resultConstraint match {
+      case resCon: AtomicStateAutomaton => resCon
+      case _ =>
+        throw new IllegalArgumentException(
+          "TransducerPreOp needs an AtomicStateAutomaton"
+        )
     }
     val a = new LinearConstraints
     (Iterator((Seq(t.preImage(rc)), a)), List())
   }
 
-  override def forwardApprox(argumentConstraints : Seq[Seq[Automaton]]) : Automaton = {
+  override def forwardApprox(
+      argumentConstraints: Seq[Seq[Automaton]]
+  ): Automaton = {
     val cons = argumentConstraints(0).map(_ match {
-        case saut : AtomicStateAutomaton => saut
-        case _ => throw new IllegalArgumentException("ConcatPreOp.forwardApprox can only approximate AtomicStateAutomata")
+      case saut: AtomicStateAutomaton => saut
+      case _ =>
+        throw new IllegalArgumentException(
+          "ConcatPreOp.forwardApprox can only approximate AtomicStateAutomata"
+        )
     })
     val prod = ProductAutomaton(cons)
     PostImageAutomaton(prod, t)

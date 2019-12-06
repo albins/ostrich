@@ -40,16 +40,22 @@ object StringTheoryUtil {
 
   private def createString(list: List[Either[Int, Term]]): String = list match {
     case Nil => ""
-    case x :: xs => (x match {
-      case Left(c) if (c > 39 && c < 44) ||
-                      (c > 90 && c < 95) ||
-                      c == 45 ||
-                      c == 46 ||
-                      c == 63 ||
-                      c == 124 => c.toChar
-      case Left(c) => "\\" + c.toChar//createUnicodeChar(c)
-      case Right(s) => throw new Exception("Don't know how to handle " + s + " in createString")
-    }) + createString(xs)
+    case x :: xs =>
+      (x match {
+        case Left(c)
+            if (c > 39 && c < 44) ||
+              (c > 90 && c < 95) ||
+              c == 45 ||
+              c == 46 ||
+              c == 63 ||
+              c == 124 =>
+          c.toChar
+        case Left(c) => "\\" + c.toChar //createUnicodeChar(c)
+        case Right(s) =>
+          throw new Exception(
+            "Don't know how to handle " + s + " in createString"
+          )
+      }) + createString(xs)
   }
 
   def createString(it: Iterator[List[Either[Int, Term]]]): String = {
@@ -57,10 +63,10 @@ object StringTheoryUtil {
       val str = createString(it.next())
 
       """^\\/(?s)(.*)\\/$""".r.findFirstMatchIn(str) match {
-        case None => 
+        case None =>
           str
 
-        case Some(s) => 
+        case Some(s) =>
           s.group(1)
       }
     } else

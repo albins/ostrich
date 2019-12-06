@@ -18,24 +18,31 @@
 
 package strsolver.preprop
 
-import scala.collection.mutable.{HashSet => MHashSet,
-                                 LinkedHashSet => MLinkedHashSet,
-                                 HashMap => MHashMap,
-                                 Stack => MStack,
-                                 MultiMap => MMultiMap,
-                                 Set => MSet}
+import scala.collection.mutable.{
+  HashSet => MHashSet,
+  LinkedHashSet => MLinkedHashSet,
+  HashMap => MHashMap,
+  Stack => MStack,
+  MultiMap => MMultiMap,
+  Set => MSet
+}
 
-import dk.brics.automaton.{Automaton => BAutomaton,
-                           State => BState,
-                           Transition => BTransition}
+import dk.brics.automaton.{
+  Automaton => BAutomaton,
+  State => BState,
+  Transition => BTransition
+}
 
-import scala.collection.JavaConversions.{iterableAsScalaIterable,asJavaCollection}
+import scala.collection.JavaConversions.{
+  iterableAsScalaIterable,
+  asJavaCollection
+}
 
 object BricsTransducer {
-  def apply() : BricsTransducer =
+  def apply(): BricsTransducer =
     getBuilder.getTransducer
 
-  def getBuilder : BricsTransducerBuilder =
+  def getBuilder: BricsTransducerBuilder =
     new BricsTransducerBuilder
 }
 
@@ -44,308 +51,340 @@ class TransducerState extends BState {
 }
 
 /**
- * Implementation of transducers as automata with input and output
- * states.  That is, from an input state, all transitions read a
- * character from input.  From an output state, all transitions produce
- * a character of output
- */
-class BricsTransducer(val initialState : BricsAutomaton#State,
-                      val lblTrans: Map[BricsAutomaton#State,
-                                        Set[BricsTransducer#TTransition]],
-                      val eTrans: Map[BricsAutomaton#State,
-                                      Set[BricsTransducer#TETransition]],
-                      val acceptingStates : Set[BricsAutomaton#State])
-    extends Transducer {
+  * Implementation of transducers as automata with input and output
+  * states.  That is, from an input state, all transitions read a
+  * character from input.  From an output state, all transitions produce
+  * a character of output
+  */
+class BricsTransducer(
+    val initialState: BricsAutomaton#State,
+    val lblTrans: Map[BricsAutomaton#State, Set[BricsTransducer#TTransition]],
+    val eTrans: Map[BricsAutomaton#State, Set[BricsTransducer#TETransition]],
+    val acceptingStates: Set[BricsAutomaton#State]
+) extends Transducer {
 
-  val LabelOps : TLabelOps[BricsAutomaton#TLabel] = BricsTLabelOps
+  val LabelOps: TLabelOps[BricsAutomaton#TLabel] = BricsTLabelOps
 
   type TTransition = (BricsAutomaton#TLabel, OutputOp, BricsAutomaton#State)
   type TETransition = (OutputOp, BricsAutomaton#State)
 
-  private def label(t : TTransition) = t._1
-  private def operation(t : TTransition) = t._2
-  private def dest(t : TTransition) : BricsAutomaton#State = t._3
-  private def operation(t : TETransition) = t._1
-  private def dest(t : TETransition) : BricsAutomaton#State = t._2
-  private def dest(t : Either[TTransition, TETransition]) : BricsAutomaton#State
-    = t match {
+  private def label(t: TTransition) = t._1
+  private def operation(t: TTransition) = t._2
+  private def dest(t: TTransition): BricsAutomaton#State = t._3
+  private def operation(t: TETransition) = t._1
+  private def dest(t: TETransition): BricsAutomaton#State = t._2
+  private def dest(t: Either[TTransition, TETransition]): BricsAutomaton#State =
+    t match {
       case Left(lblTran) => dest(lblTran)
-      case Right(eTran) => dest(eTran)
+      case Right(eTran)  => dest(eTran)
     }
 
-  def isAccept(s : BricsAutomaton#State) = acceptingStates.contains(s)
+  def isAccept(s: BricsAutomaton#State) = acceptingStates.contains(s)
 
-  def preImage[A <: AtomicStateAutomaton]
-              (aut : A,
-               internal : Iterable[(A#State, A#State)]
-                 = Iterable[(A#State, A#State)]()) : BricsAutomaton =
-  Exploration.measure("transducer pre-op") {
-    // TODO : output linear constraints
-    // huzi add---------------------------------------------------------------------
-    val internalA = AtomicStateAutomatonAdapter.intern(aut)
+  def preImage[A <: AtomicStateAutomaton](
+      aut: A,
+      internal: Iterable[(A#State, A#State)] = Iterable[(A#State, A#State)]()
+  ): BricsAutomaton =
+    Exploration.measure("transducer pre-op") {
+      // TODO : output linear constraints
+      // huzi add---------------------------------------------------------------------
+      val internalA = AtomicStateAutomatonAdapter.intern(aut)
 
-    val resAut = internalA.asInstanceOf[BricsAutomaton]
+      val resAut = internalA.asInstanceOf[BricsAutomaton]
 
-    val preBuilder = resAut.getBuilder
+      val preBuilder = resAut.getBuilder
 
-    val internalMap =
-      new MHashMap[resAut.State, MSet[resAut.State]]
+      val internalMap =
+        new MHashMap[resAut.State, MSet[resAut.State]]
           with MMultiMap[resAut.State, resAut.State] {
-        override def default(q : resAut.State) : MSet[resAut.State] =
-          MLinkedHashSet.empty[resAut.State]
-      }
-
-    for ((s1, s2) <- internal)
-      internalMap.addBinding(s1.asInstanceOf[resAut.State],
-                             s2.asInstanceOf[resAut.State])
-
-    // map states of pre-image resAut to state of transducer and state of resAut
-    val sMap = new MHashMap[resAut.State, (BricsAutomaton#State, resAut.State)]
-    val sMapRev = new MHashMap[(BricsAutomaton#State, resAut.State), resAut.State]
-
-    val initAutState = resAut.initialState
-    val newInitState = preBuilder.getNewState
-    preBuilder setInitialState newInitState
-
-    sMap += (newInitState -> ((initialState, initAutState)))
-    sMapRev += (initialState, initAutState) -> newInitState
-
-    // collect silent transitions during main loop and eliminate them
-    // after (TODO: think of more efficient solution)
-    val silentTransitions = new MHashMap[resAut.State, MSet[(resAut.State,List[Int])]]
-                            with MMultiMap[resAut.State, (resAut.State,List[Int]) ]
-
-    // transducer state, resAutomaton state
-    def getState(ts : BricsAutomaton#State, as : resAut.State) = {
-      sMapRev.getOrElse((ts, as), {
-        val ps = preBuilder.getNewState
-        sMapRev += ((ts, as) -> ps)
-        sMap += (ps -> (ts, as))
-        ps
-      })
-    }
-
-    // when working through a transition ..
-    abstract class Mode
-    // .. either doing pre part (u remains to do)
-    case class Pre(u : Seq[Char]) extends Mode
-    // .. applying operation
-    case object Op extends Mode
-    // .. or working through post part, once done any new transition
-    // added to pre-image resAut should have label lbl
-    case class Post(u : Seq[Char], lbl : resAut.TLabel) extends Mode
-    // post part for adding etran
-    case class EPost(u : Seq[Char]) extends Mode
-
-    val etaMap = new MHashMap[(BricsAutomaton#State, BricsAutomaton#TLabel, 
-                              BricsAutomaton#State), List[Int]]
-
-    def initVector() : List[Int] = {
-      List.fill(resAut.registers.length)(0)
-    }
-
-    /**
-     * addVector, vector = v1+v2. e.g v1 = (1,2),v2=(1,2)，
-     * after this funciton , vector = (2,4)
-     */
-    def addVector(v1 : List[Int], v2 : List[Int] ) : List[Int] = {
-      if(v1.length != v2.length)
-        throw new Exception("addVector error, two vector's length are different")
-        (v1 zip v2).map{case(a,b)=>a+b}
-    }
-
-    // (ps, ts, t, as, m, v)
-    // state of pre resAut to add new transitions from
-    // current state of transducer reached
-    // transition being processed
-    // current state of target resAut reached
-    // mode as above
-    // vector
-    val worklist = new MStack[(resAut.State,
-                               BricsAutomaton#State,
-                               Either[TTransition, TETransition],
-                               resAut.State,
-                               Mode,
-                               List[Int])]
-    val seenlist = new MHashSet[(resAut.State,
-                                 BricsAutomaton#State,
-                                 Either[TTransition, TETransition],
-                                 resAut.State,
-                                 Mode)]
-    def addWork(ps : resAut.State ,
-                ts : BricsAutomaton#State,
-                t : Either[TTransition, TETransition],
-                as : resAut.State,
-                m : Mode,
-                v : List[Int]) {
-      if (!seenlist.contains((ps, ts, t, as, m))) {
-        seenlist += ((ps, ts, t, as, m))
-        worklist.push((ps, ts, t, as, m, v))
-      }
-    }
-
-    def reachStates(ts : BricsAutomaton#State, as : resAut.State, 
-      // huzi add parameter initV
-                    initV : List[Int]) {
-      val ps = getState(ts, as)
-      if (isAccept(ts) && resAut.isAccept(as))
-        preBuilder.setAccept(ps, true)
-
-      for (trans <- lblTrans.get(ts); t <- trans) {
-        val tOp = operation(t)
-        if (tOp.preW.isEmpty)
-          addWork(ps, ts, Left(t), as, Op, initV)
-        else
-          addWork(ps, ts, Left(t), as, Pre(tOp.preW), initV)
-      }
-
-      for (trans <- eTrans.get(ts); t <- trans) {
-        val tOp = operation(t)
-        if (tOp.preW.isEmpty)
-          addWork(ps, ts, Right(t), as, Op, initV)
-        else
-          addWork(ps, ts, Right(t), as, Pre(tOp.preW), initV)
-      }
-    }
-
-    // initialState is transducer state
-    reachStates(initialState, resAut.initialState, initVector())
-
-    while (!worklist.isEmpty) {
-      // pre resAut state, transducer state, resAutomaton state
-      val (ps, ts, t, as, m, v) = worklist.pop()
-      // TODO： add etaMap
-      m match {
-        case Pre(u) if u.isEmpty => {
-          // should never happen
+          override def default(q: resAut.State): MSet[resAut.State] =
+            MLinkedHashSet.empty[resAut.State]
         }
-        case Pre(u) if !u.isEmpty => {
-          val a = u.head
-          val rest = u.tail
-          for ((asNext, albl) <- resAut.outgoingTransitions(as)) {
-            if (resAut.LabelOps.labelContains(a, albl)) {
-              if (!rest.isEmpty) {
-                //TODO
-                val getV = resAut.etaMap((as, albl, asNext))
-                val vector = addVector(v,getV)
-                addWork(ps, ts, t, asNext, Pre(rest), vector)
-              } else {
-                //TODO
-                val getV = resAut.etaMap((as, albl, asNext))
-                val vector = addVector(v,getV)
-                addWork(ps, ts, t, asNext, Op, vector)
 
+      for ((s1, s2) <- internal)
+        internalMap.addBinding(
+          s1.asInstanceOf[resAut.State],
+          s2.asInstanceOf[resAut.State]
+        )
+
+      // map states of pre-image resAut to state of transducer and state of resAut
+      val sMap =
+        new MHashMap[resAut.State, (BricsAutomaton#State, resAut.State)]
+      val sMapRev =
+        new MHashMap[(BricsAutomaton#State, resAut.State), resAut.State]
+
+      val initAutState = resAut.initialState
+      val newInitState = preBuilder.getNewState
+      preBuilder setInitialState newInitState
+
+      sMap += (newInitState -> ((initialState, initAutState)))
+      sMapRev += (initialState, initAutState) -> newInitState
+
+      // collect silent transitions during main loop and eliminate them
+      // after (TODO: think of more efficient solution)
+      val silentTransitions =
+        new MHashMap[resAut.State, MSet[(resAut.State, List[Int])]]
+          with MMultiMap[resAut.State, (resAut.State, List[Int])]
+
+      // transducer state, resAutomaton state
+      def getState(ts: BricsAutomaton#State, as: resAut.State) = {
+        sMapRev.getOrElse((ts, as), {
+          val ps = preBuilder.getNewState
+          sMapRev += ((ts, as) -> ps)
+          sMap += (ps -> (ts, as))
+          ps
+        })
+      }
+
+      // when working through a transition ..
+      abstract class Mode
+      // .. either doing pre part (u remains to do)
+      case class Pre(u: Seq[Char]) extends Mode
+      // .. applying operation
+      case object Op extends Mode
+      // .. or working through post part, once done any new transition
+      // added to pre-image resAut should have label lbl
+      case class Post(u: Seq[Char], lbl: resAut.TLabel) extends Mode
+      // post part for adding etran
+      case class EPost(u: Seq[Char]) extends Mode
+
+      val etaMap = new MHashMap[
+        (BricsAutomaton#State, BricsAutomaton#TLabel, BricsAutomaton#State),
+        List[Int]
+      ]
+
+      def initVector(): List[Int] = {
+        List.fill(resAut.registers.length)(0)
+      }
+
+      /**
+        * addVector, vector = v1+v2. e.g v1 = (1,2),v2=(1,2)，
+        * after this funciton , vector = (2,4)
+        */
+      def addVector(v1: List[Int], v2: List[Int]): List[Int] = {
+        if (v1.length != v2.length)
+          throw new Exception(
+            "addVector error, two vector's length are different"
+          )
+        (v1 zip v2).map { case (a, b) => a + b }
+      }
+
+      // (ps, ts, t, as, m, v)
+      // state of pre resAut to add new transitions from
+      // current state of transducer reached
+      // transition being processed
+      // current state of target resAut reached
+      // mode as above
+      // vector
+      val worklist = new MStack[
+        (
+            resAut.State,
+            BricsAutomaton#State,
+            Either[TTransition, TETransition],
+            resAut.State,
+            Mode,
+            List[Int]
+        )
+      ]
+      val seenlist = new MHashSet[
+        (
+            resAut.State,
+            BricsAutomaton#State,
+            Either[TTransition, TETransition],
+            resAut.State,
+            Mode
+        )
+      ]
+      def addWork(
+          ps: resAut.State,
+          ts: BricsAutomaton#State,
+          t: Either[TTransition, TETransition],
+          as: resAut.State,
+          m: Mode,
+          v: List[Int]
+      ) {
+        if (!seenlist.contains((ps, ts, t, as, m))) {
+          seenlist += ((ps, ts, t, as, m))
+          worklist.push((ps, ts, t, as, m, v))
+        }
+      }
+
+      def reachStates(
+          ts: BricsAutomaton#State,
+          as: resAut.State,
+          // huzi add parameter initV
+          initV: List[Int]
+      ) {
+        val ps = getState(ts, as)
+        if (isAccept(ts) && resAut.isAccept(as))
+          preBuilder.setAccept(ps, true)
+
+        for (trans <- lblTrans.get(ts); t <- trans) {
+          val tOp = operation(t)
+          if (tOp.preW.isEmpty)
+            addWork(ps, ts, Left(t), as, Op, initV)
+          else
+            addWork(ps, ts, Left(t), as, Pre(tOp.preW), initV)
+        }
+
+        for (trans <- eTrans.get(ts); t <- trans) {
+          val tOp = operation(t)
+          if (tOp.preW.isEmpty)
+            addWork(ps, ts, Right(t), as, Op, initV)
+          else
+            addWork(ps, ts, Right(t), as, Pre(tOp.preW), initV)
+        }
+      }
+
+      // initialState is transducer state
+      reachStates(initialState, resAut.initialState, initVector())
+
+      while (!worklist.isEmpty) {
+        // pre resAut state, transducer state, resAutomaton state
+        val (ps, ts, t, as, m, v) = worklist.pop()
+        // TODO： add etaMap
+        m match {
+          case Pre(u) if u.isEmpty => {
+            // should never happen
+          }
+          case Pre(u) if !u.isEmpty => {
+            val a = u.head
+            val rest = u.tail
+            for ((asNext, albl) <- resAut.outgoingTransitions(as)) {
+              if (resAut.LabelOps.labelContains(a, albl)) {
+                if (!rest.isEmpty) {
+                  //TODO
+                  val getV = resAut.etaMap((as, albl, asNext))
+                  val vector = addVector(v, getV)
+                  addWork(ps, ts, t, asNext, Pre(rest), vector)
+                } else {
+                  //TODO
+                  val getV = resAut.etaMap((as, albl, asNext))
+                  val vector = addVector(v, getV)
+                  addWork(ps, ts, t, asNext, Op, vector)
+
+                }
               }
             }
           }
-        }
-        case Op => {
-          t match {
-            case Left(lblTran) => {
-              val tOp = operation(lblTran)
-              val (min, max) = label(lblTran)
-              val tlbl = resAut.LabelOps.interval(min, max)
-              tOp.op match {
-                case NOP => {
-                  addWork(ps, ts, t, as, Post(tOp.postW, tlbl), v)
-                }
-                case Internal => {
-                  // TODO: set vector, now is wrong, maybe need to modify type of
-                  // internal(input), e.g internal : (state, state, vector)
-                  for (asNext <- internalMap(as))
-                    addWork(ps, ts, t, asNext, Post(tOp.postW, tlbl), v)
-                }
-                case Plus(n) => {
-                  for ((asNext, albl) <- resAut.outgoingTransitions(as)) {
-                    val shftLbl = resAut.LabelOps.shift(albl, -n)
-                    if (resAut.LabelOps.isNonEmptyLabel(shftLbl)) {
-                      for (preLbl <- resAut.LabelOps.intersectLabels(shftLbl, tlbl)) {
-                        //TODO
-                        val getV = resAut.etaMap((as, albl, asNext))
-                        val vector = addVector(v,getV)
-                        addWork(ps, ts, t, asNext, Post(tOp.postW, preLbl), vector)
+          case Op => {
+            t match {
+              case Left(lblTran) => {
+                val tOp = operation(lblTran)
+                val (min, max) = label(lblTran)
+                val tlbl = resAut.LabelOps.interval(min, max)
+                tOp.op match {
+                  case NOP => {
+                    addWork(ps, ts, t, as, Post(tOp.postW, tlbl), v)
+                  }
+                  case Internal => {
+                    // TODO: set vector, now is wrong, maybe need to modify type of
+                    // internal(input), e.g internal : (state, state, vector)
+                    for (asNext <- internalMap(as))
+                      addWork(ps, ts, t, asNext, Post(tOp.postW, tlbl), v)
+                  }
+                  case Plus(n) => {
+                    for ((asNext, albl) <- resAut.outgoingTransitions(as)) {
+                      val shftLbl = resAut.LabelOps.shift(albl, -n)
+                      if (resAut.LabelOps.isNonEmptyLabel(shftLbl)) {
+                        for (preLbl <- resAut.LabelOps.intersectLabels(
+                               shftLbl,
+                               tlbl
+                             )) {
+                          //TODO
+                          val getV = resAut.etaMap((as, albl, asNext))
+                          val vector = addVector(v, getV)
+                          addWork(
+                            ps,
+                            ts,
+                            t,
+                            asNext,
+                            Post(tOp.postW, preLbl),
+                            vector
+                          )
+                        }
                       }
                     }
                   }
                 }
               }
-            }
 
-            case Right(eTran) => {
-              val tOp = operation(eTran)
-              tOp.op match {
-                case NOP => {
-                  // deleting an e-label means doing nothing
-                  addWork(ps, ts, t, as, EPost(tOp.postW), v)
-                }
-                case Internal => {
-                  for (asNext <- internalMap(as))
-                  // TODO: set vector, now is wrong, maybe need to modify type of
-                  // internal(input), e.g internal : (state, state, vector)
-                    addWork(ps, ts, t, asNext, EPost(tOp.postW),v)
-                }
-                case Plus(_) => {
-                  // treat as delete -- can't shift e-tran
-                  addWork(ps, ts, t, as, EPost(tOp.postW), v)
+              case Right(eTran) => {
+                val tOp = operation(eTran)
+                tOp.op match {
+                  case NOP => {
+                    // deleting an e-label means doing nothing
+                    addWork(ps, ts, t, as, EPost(tOp.postW), v)
+                  }
+                  case Internal => {
+                    for (asNext <- internalMap(as))
+                      // TODO: set vector, now is wrong, maybe need to modify type of
+                      // internal(input), e.g internal : (state, state, vector)
+                      addWork(ps, ts, t, asNext, EPost(tOp.postW), v)
+                  }
+                  case Plus(_) => {
+                    // treat as delete -- can't shift e-tran
+                    addWork(ps, ts, t, as, EPost(tOp.postW), v)
+                  }
                 }
               }
             }
           }
-        }
-        case Post(w, lbl) if !w.isEmpty => {
-          val a = w.head
-          val rest = w.tail
-          for ((asNext, albl) <- resAut.outgoingTransitions(as)) {
-            if (resAut.LabelOps.labelContains(a, albl)){
-              // TODO
-              val getV = resAut.etaMap((as, albl, asNext))
-              val vector = addVector(v,getV)
-              addWork(ps, ts, t, asNext, Post(rest, lbl), vector)
+          case Post(w, lbl) if !w.isEmpty => {
+            val a = w.head
+            val rest = w.tail
+            for ((asNext, albl) <- resAut.outgoingTransitions(as)) {
+              if (resAut.LabelOps.labelContains(a, albl)) {
+                // TODO
+                val getV = resAut.etaMap((as, albl, asNext))
+                val vector = addVector(v, getV)
+                addWork(ps, ts, t, asNext, Post(rest, lbl), vector)
+              }
             }
           }
-        }
-        case Post(w, lbl) if w.isEmpty => {
-          val tsNext = dest(t)
-          val psNext = getState(dest(t), as)
-          // TODO
-          // etaMap += ((ps, lbl, psNext)->v)
-          preBuilder.addTransition(ps, lbl, psNext, v)
+          case Post(w, lbl) if w.isEmpty => {
+            val tsNext = dest(t)
+            val psNext = getState(dest(t), as)
+            // TODO
+            // etaMap += ((ps, lbl, psNext)->v)
+            preBuilder.addTransition(ps, lbl, psNext, v)
 
-          reachStates(tsNext, as, initVector())
-        }
-        case EPost(w) if !w.isEmpty => {
-          val a = w.head
-          val rest = w.tail
-          for ((asNext, albl) <- resAut.outgoingTransitions(as)) {
-            if (resAut.LabelOps.labelContains(a, albl)){
-              // TODO
-              val getV = resAut.etaMap((as, albl, asNext))
-              val vector = addVector(v,getV)
-              addWork(ps, ts, t, asNext, EPost(rest), vector)
+            reachStates(tsNext, as, initVector())
+          }
+          case EPost(w) if !w.isEmpty => {
+            val a = w.head
+            val rest = w.tail
+            for ((asNext, albl) <- resAut.outgoingTransitions(as)) {
+              if (resAut.LabelOps.labelContains(a, albl)) {
+                // TODO
+                val getV = resAut.etaMap((as, albl, asNext))
+                val vector = addVector(v, getV)
+                addWork(ps, ts, t, asNext, EPost(rest), vector)
+              }
             }
           }
-        }
-        case EPost(w) if w.isEmpty => {
-          val tsNext = dest(t)
-          val psNext = getState(dest(t), as)
-          // TODO ： how to add vector when transducer is ET?, now maybe wrong
-          silentTransitions.addBinding(ps, (psNext,v))
-          reachStates(tsNext, as, initVector())
+          case EPost(w) if w.isEmpty => {
+            val tsNext = dest(t)
+            val psNext = getState(dest(t), as)
+            // TODO ： how to add vector when transducer is ET?, now maybe wrong
+            silentTransitions.addBinding(ps, (psNext, v))
+            reachStates(tsNext, as, initVector())
+          }
         }
       }
+
+      AutomataUtils.buildEpsilons(preBuilder, silentTransitions, true)
+
+      val res = preBuilder.getAutomaton.asInstanceOf[BricsAutomaton]
+      res.addEtaMaps(preBuilder.etaMap)
+      res.setRegisters(resAut.registers)
+      res
     }
 
-    AutomataUtils.buildEpsilons(preBuilder, silentTransitions, true)
-
-    val res = preBuilder.getAutomaton.asInstanceOf[BricsAutomaton]
-    res.addEtaMaps(preBuilder.etaMap)
-    res.setRegisters(resAut.registers)
-    res
-  }
-
-  def postImage[A <: AtomicStateAutomaton]
-               (aut : A, internalAut : Option[A] = None)
-      : AtomicStateAutomaton = {
+  def postImage[A <: AtomicStateAutomaton](
+      aut: A,
+      internalAut: Option[A] = None
+  ): AtomicStateAutomaton = {
     val builder = aut.getBuilder
 
     // map states of pre-image aut to state of transducer and state of
@@ -353,11 +392,11 @@ class BricsTransducer(val initialState : BricsAutomaton#State,
     val sMap = new MHashMap[aut.State, (BricsAutomaton#State, aut.State)]
     val sMapRev = new MHashMap[(BricsAutomaton#State, aut.State), aut.State]
 
-    val internalStateMap : Option[Map[A#State, aut.State]] =
+    val internalStateMap: Option[Map[A#State, aut.State]] =
       internalAut.map(_.states.map(s => (s -> builder.getNewState)).toMap)
-    val internalInit : Option[aut.State] =
+    val internalInit: Option[aut.State] =
       internalAut.map(ia => internalStateMap.get(ia.initialState))
-    val internalFins : Option[Set[aut.State]] =
+    val internalFins: Option[Set[aut.State]] =
       internalAut.map(_.acceptingStates.map(internalStateMap.get))
 
     val initAutState = aut.initialState
@@ -369,30 +408,34 @@ class BricsTransducer(val initialState : BricsAutomaton#State,
     // collect silent transitions during main loop and eliminate them
     // after (TODO: think of more efficient solution)
     val silentTransitions = new MHashMap[aut.State, MSet[aut.State]]
-                            with MMultiMap[aut.State, aut.State]
+      with MMultiMap[aut.State, aut.State]
 
     val worklist = new MStack[aut.State]
     worklist.push(newInitState)
 
     // transducer state, automaton state
-    def getState(ts : BricsAutomaton#State, as : aut.State) = {
-      sMapRev.getOrElse((ts, as), {
-        val ps = builder.getNewState
-        if (isAccept(ts) && aut.isAccept(as))
-          builder.setAccept(ps, true)
-        sMapRev += ((ts, as) -> ps)
-        sMap += (ps -> (ts, as))
-        worklist.push(ps)
-        ps
-      })
+    def getState(ts: BricsAutomaton#State, as: aut.State) = {
+      sMapRev.getOrElse(
+        (ts, as), {
+          val ps = builder.getNewState
+          if (isAccept(ts) && aut.isAccept(as))
+            builder.setAccept(ps, true)
+          sMapRev += ((ts, as) -> ps)
+          sMap += (ps -> (ts, as))
+          worklist.push(ps)
+          ps
+        }
+      )
     }
 
     // add transitions to run over word reaching targState if given (and
     // word not empty).  Returns state reached (which is targState or a
     // new state if no targState)
-    def wordRun(ps : aut.State,
-                word : Seq[Char],
-                targState : Option[aut.State]) : aut.State = {
+    def wordRun(
+        ps: aut.State,
+        word: Seq[Char],
+        targState: Option[aut.State]
+    ): aut.State = {
       if (word.isEmpty) {
         ps
       } else if (word.size == 1 && !targState.isEmpty) {
@@ -425,14 +468,16 @@ class BricsTransducer(val initialState : BricsAutomaton#State,
               silentTransitions.addBinding(ps, psNext)
             } else if (tOp.postW.isEmpty) {
               wordRun(ps, tOp.preW, Some(psNext))
-            } else  {
+            } else {
               val psMid = wordRun(ps, tOp.preW, None)
               wordRun(psMid, tOp.postW, Some(psNext))
             }
           }
           case Internal => {
             if (internalAut.isEmpty) {
-              throw new IllegalArgumentException("Post image of a transducer with internal transitions needs and internalAut")
+              throw new IllegalArgumentException(
+                "Post image of a transducer with internal transitions needs and internalAut"
+              )
             } else {
               silentTransitions.addBinding(ps, internalInit.get)
               for (f <- internalFins.get)
@@ -459,12 +504,12 @@ class BricsTransducer(val initialState : BricsAutomaton#State,
         val psNext = getState(dest(t), as)
         val tOp = operation(t)
 
-        def handleNoOut(tOp : OutputOp) = {
+        def handleNoOut(tOp: OutputOp) = {
           if (tOp.preW.isEmpty && tOp.postW.isEmpty) {
             silentTransitions.addBinding(ps, psNext)
           } else if (tOp.postW.isEmpty) {
             wordRun(ps, tOp.preW, Some(psNext))
-          } else  {
+          } else {
             val psMid = wordRun(ps, tOp.preW, None)
             wordRun(psMid, tOp.postW, Some(psNext))
           }
@@ -474,7 +519,9 @@ class BricsTransducer(val initialState : BricsAutomaton#State,
           case NOP => handleNoOut(tOp)
           case Internal => {
             if (internalAut.isEmpty) {
-              throw new IllegalArgumentException("Post image of a transducer with internal transitions needs and internalAut")
+              throw new IllegalArgumentException(
+                "Post image of a transducer with internal transitions needs and internalAut"
+              )
             } else {
               silentTransitions.addBinding(ps, internalInit.get)
               for (f <- internalFins.get)
@@ -489,9 +536,11 @@ class BricsTransducer(val initialState : BricsAutomaton#State,
 
     if (!internalAut.isEmpty) {
       for ((is1, ilbl, is2) <- internalAut.get.transitions)
-        builder.addTransition(internalStateMap.get(is1),
-                              ilbl.asInstanceOf[aut.TLabel],
-                              internalStateMap.get(is2))
+        builder.addTransition(
+          internalStateMap.get(is1),
+          ilbl.asInstanceOf[aut.TLabel],
+          internalStateMap.get(is2)
+        )
     }
 
     AutomataUtils.buildEpsilons(builder, silentTransitions)
@@ -501,18 +550,18 @@ class BricsTransducer(val initialState : BricsAutomaton#State,
 
   override def toString = {
     "init: " + initialState + "\n" +
-    "finals: " + acceptingStates + "\n" +
-    lblTrans.mkString("\n") +
-    eTrans.mkString("\n")
+      "finals: " + acceptingStates + "\n" +
+      lblTrans.mkString("\n") +
+      eTrans.mkString("\n")
   }
 
   /**
-   * Apply the transducer to the input, replacing any internal
-   * characters with the given string.
-   *
-   * Assumes transducer is functional, so returns the first found output
-   */
-  def apply(input : String, internal : String = "") : Option[String] = {
+    * Apply the transducer to the input, replacing any internal
+    * characters with the given string.
+    *
+    * Assumes transducer is functional, so returns the first found output
+    */
+  def apply(input: String, internal: String = ""): Option[String] = {
     if (input.size == 0 && isAccept(initialState))
       return Some("")
 
@@ -530,12 +579,14 @@ class BricsTransducer(val initialState : BricsAutomaton#State,
           val pnext = pos + 1
           val snext = dest(t)
           val lbl = label(t)
-          if (LabelOps.labelContains(a, lbl) && !seenlist.contains((snext, pnext))) {
+          if (LabelOps.labelContains(a, lbl) && !seenlist.contains(
+                (snext, pnext)
+              )) {
             val tOp = operation(t)
             val opOut = tOp.op match {
-              case NOP => ""
+              case NOP      => ""
               case Internal => internal
-              case Plus(n) => (a + n).toChar.toString
+              case Plus(n)  => (a + n).toChar.toString
             }
             val outnext = output + tOp.preW.mkString + opOut + tOp.postW.mkString
             if (pnext >= input.length && isAccept(snext))
@@ -551,7 +602,7 @@ class BricsTransducer(val initialState : BricsAutomaton#State,
         if (!seenlist.contains((snext, pnext))) {
           val tOp = operation(t)
           val opOut = tOp.op match {
-            case NOP => ""
+            case NOP      => ""
             case Internal => internal
             // treat as delete
             case Plus(_) => ""
@@ -569,70 +620,79 @@ class BricsTransducer(val initialState : BricsAutomaton#State,
 }
 
 class BricsTransducerBuilder
-    extends TransducerBuilder[BricsAutomaton#State,
-                              BricsAutomaton#TLabel] {
-  val LabelOps : TLabelOps[BricsAutomaton#TLabel] = BricsTLabelOps
+    extends TransducerBuilder[BricsAutomaton#State, BricsAutomaton#TLabel] {
+  val LabelOps: TLabelOps[BricsAutomaton#TLabel] = BricsTLabelOps
 
-  var initialState : BricsAutomaton#State = getNewState
-  val acceptingStates : MSet[BricsAutomaton#State]
-    = new MLinkedHashSet[BricsAutomaton#State]
+  var initialState: BricsAutomaton#State = getNewState
+  val acceptingStates: MSet[BricsAutomaton#State] =
+    new MLinkedHashSet[BricsAutomaton#State]
 
-  val lblTrans
-    = new MHashMap[BricsAutomaton#State, MSet[BricsTransducer#TTransition]]
+  val lblTrans =
+    new MHashMap[BricsAutomaton#State, MSet[BricsTransducer#TTransition]]
       with MMultiMap[BricsAutomaton#State, BricsTransducer#TTransition] {
-      override def default(q : BricsAutomaton#State) : MSet[BricsTransducer#TTransition] =
+      override def default(
+          q: BricsAutomaton#State
+      ): MSet[BricsTransducer#TTransition] =
         MLinkedHashSet.empty[BricsTransducer#TTransition]
     }
-  val eTrans
-    = new MHashMap[BricsAutomaton#State, MSet[BricsTransducer#TETransition]]
+  val eTrans =
+    new MHashMap[BricsAutomaton#State, MSet[BricsTransducer#TETransition]]
       with MMultiMap[BricsAutomaton#State, BricsTransducer#TETransition] {
-      override def default(q : BricsAutomaton#State) : MSet[BricsTransducer#TETransition] =
+      override def default(
+          q: BricsAutomaton#State
+      ): MSet[BricsTransducer#TETransition] =
         MLinkedHashSet.empty[BricsTransducer#TETransition]
     }
 
-  def getNewState : BricsAutomaton#State = new TransducerState
+  def getNewState: BricsAutomaton#State = new TransducerState
 
-  def setInitialState(s : BricsAutomaton#State) = {
+  def setInitialState(s: BricsAutomaton#State) = {
     initialState = s
   }
 
-  def isAccept(s : BricsAutomaton#State) = acceptingStates.contains(s)
+  def isAccept(s: BricsAutomaton#State) = acceptingStates.contains(s)
 
-  def setAccept(s : BricsAutomaton#State, isAccept : Boolean) =
+  def setAccept(s: BricsAutomaton#State, isAccept: Boolean) =
     if (isAccept)
       acceptingStates += s
     else
       acceptingStates -= s
 
-  def addTransition(s1 : BricsAutomaton#State,
-                    lbl : BricsAutomaton#TLabel,
-                    op : OutputOp,
-                    s2 : BricsAutomaton#State) =
+  def addTransition(
+      s1: BricsAutomaton#State,
+      lbl: BricsAutomaton#TLabel,
+      op: OutputOp,
+      s2: BricsAutomaton#State
+  ) =
     if (LabelOps.isNonEmptyLabel(lbl))
       lblTrans.addBinding(s1, (lbl, op, s2))
 
-  def addETransition(s1 : BricsAutomaton#State,
-                     op : OutputOp,
-                     s2 : BricsAutomaton#State) =
+  def addETransition(
+      s1: BricsAutomaton#State,
+      op: OutputOp,
+      s2: BricsAutomaton#State
+  ) =
     eTrans.addBinding(s1, (op, s2))
 
   def getTransducer = {
     minimize()
     // TODO: restrict to live reachable states
-    new BricsTransducer(initialState,
-                        lblTrans.toMap.mapValues(_.toSet),
-                        eTrans.toMap.mapValues(_.toSet),
-                        acceptingStates.toSet)
+    new BricsTransducer(
+      initialState,
+      lblTrans.toMap.mapValues(_.toSet),
+      eTrans.toMap.mapValues(_.toSet),
+      acceptingStates.toSet
+    )
   }
 
   private def minimize() = {
 
-    def dest(t : BricsTransducer#TTransition) : BricsAutomaton#State = t._3
-    def edest(t : BricsTransducer#TETransition) : BricsAutomaton#State = t._2
+    def dest(t: BricsTransducer#TTransition): BricsAutomaton#State = t._3
+    def edest(t: BricsTransducer#TETransition): BricsAutomaton#State = t._2
 
     val fwdReach = new MHashSet[BricsAutomaton#State]
     val bwdMap = new MHashMap[BricsAutomaton#State, MSet[BricsAutomaton#State]]
-                 with MMultiMap[BricsAutomaton#State, BricsAutomaton#State]
+      with MMultiMap[BricsAutomaton#State, BricsAutomaton#State]
     val worklist = new MStack[BricsAutomaton#State]
 
     fwdReach += initialState
@@ -674,8 +734,10 @@ class BricsTransducerBuilder
     acceptingStates.retain(bwdReach.contains(_))
     lblTrans.retain((k, v) => bwdReach.contains(k))
     eTrans.retain((k, v) => bwdReach.contains(k))
-    lblTrans.foreach({ case (k, v) => v.retain(t => bwdReach.contains(dest(t))) })
-    eTrans.foreach({ case (k, v) => v.retain(t => bwdReach.contains(edest(t))) })
+    lblTrans.foreach({
+      case (k, v) => v.retain(t => bwdReach.contains(dest(t)))
+    })
+    eTrans.foreach({ case (k, v) => v.retain(t => bwdReach.contains(edest(t))) }
+    )
   }
 }
-
