@@ -264,7 +264,7 @@ object BricsTLabelOps extends TLabelOps[(Char, Char)] {
       l1: (Char, Char),
       l2: (Char, Char)
   ): Option[(Char, Char)] = {
-    Option(l1._1 max l2._1, l1._2 min l2._2).filter(isNonEmptyLabel(_))
+    Option((l1._1 max l2._1, l1._2 min l2._2)).filter(isNonEmptyLabel(_))
   }
 
   /**
@@ -379,7 +379,7 @@ class BricsTLabelEnumerator(labels: Iterator[(Char, Char)])
     new BricsTLabelEnumerator(disjointLabels.iterator ++ Iterator((a, a)))
 
   private def calculateDisjointLabels(): MTreeSet[(Char, Char)] = {
-    var disjoint = new MTreeSet[(Char, Char)]()
+    val disjoint = new MTreeSet[(Char, Char)]()
 
     val mins  = new MTreeSet[Char]
     val maxes = new MTreeSet[Char]
@@ -543,8 +543,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             val refStates     = transPreStates(finalStateInd)
 
             // FIXME: remove self-loops maybe?
-            // FIXME: the initial state should appear (at least) twice now?
-            // FIXME: No need for concatenation: not ordered
             // [to, Option[from] [labels]]
             val productions: List[(Int, Option[Int], List[Int])] =
               (if (refStates contains initialStateInd)
@@ -576,9 +574,9 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
               t match {
                 // Ignore self-loops:
                 case ((to, from, _), _) if from == to => List()
-                case ((to, None, _), v)               => List(to -> (IdealInt.MINUS_ONE, v))
+                case ((to, None, _), v)               => List((to, (IdealInt.MINUS_ONE, v)))
                 case ((to, Some(from), _), v) =>
-                  List(to -> (IdealInt.MINUS_ONE, v), from -> (IdealInt.ONE, v))
+                  List((to, (IdealInt.MINUS_ONE, v)), (from, (IdealInt.ONE, v)))
               }
 
             // Translate the weird output of groupBy to actual linear
@@ -615,7 +613,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             // registers
 
             // Create the terms for the register equation:
-            def makeRegisterTerms(ri: (ITerm, Int)): List[(IdealInt, Term)] = {
+            def makeRegisterTerms(ri: (ITerm, Int)): LinearCombination = {
               val (r, i) = ri
               val prodTerms = prodsWithVars
                 .filter { case ((_, from, _), _) => from != None }
@@ -623,7 +621,10 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
                   case ((_, _, regs), prodVar) => (IdealInt(regs(i)), prodVar)
                 }
 
-              (IdealInt.MINUS_ONE, InputAbsy2Internal(r, order)) :: prodTerms
+              LinearCombination(
+                (IdealInt.MINUS_ONE, InputAbsy2Internal(r, order)) :: prodTerms,
+                order
+              )
             }
 
             // for each register, generate a linear combination of -1 * r +
@@ -631,7 +632,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             // the...state of register r at state s.
             val rEqs = registers.zipWithIndex
               .map(makeRegisterTerms)
-              .map(terms => LinearCombination(terms, order))
               .toList
 
             val entryZEq = zVars(finalStateInd) - 1
