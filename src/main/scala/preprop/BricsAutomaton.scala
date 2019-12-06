@@ -147,7 +147,7 @@ object BricsAutomaton {
     val sMapRev = new MHashMap[List[Any], head.State]
 
     val initStates = (auts.map(_.initialState)).toList
-    sMap += initState     -> initStates
+    sMap += initState -> initStates
     sMapRev += initStates -> initState
 
     val worklist = new MStack[(head.State, List[Any])]
@@ -201,7 +201,7 @@ object BricsAutomaton {
           }
           case _state :: ssTail => {
             val aut :: autsTail = remAuts
-            val state           = _state.asInstanceOf[aut.State]
+            val state = _state.asInstanceOf[aut.State]
 
             aut.outgoingTransitions(state) foreach {
               case (s, nextLbl) => {
@@ -381,7 +381,7 @@ class BricsTLabelEnumerator(labels: Iterator[(Char, Char)])
   private def calculateDisjointLabels(): MTreeSet[(Char, Char)] = {
     val disjoint = new MTreeSet[(Char, Char)]()
 
-    val mins  = new MTreeSet[Char]
+    val mins = new MTreeSet[Char]
     val maxes = new MTreeSet[Char]
     for ((min, max) <- labels) {
       mins += min
@@ -394,7 +394,7 @@ class BricsTLabelEnumerator(labels: Iterator[(Char, Char)])
     if (!imin.hasNext)
       return disjoint
 
-    var curMin  = imin.next
+    var curMin = imin.next
     var nextMax = imax.next
     while (imin.hasNext) {
       val nextMin = imin.next
@@ -453,7 +453,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
   import BricsAutomaton.toBAutomaton
 
-  type State  = BState
+  type State = BState
   type TLabel = (Char, Char)
 
   override val LabelOps = BricsTLabelOps
@@ -471,7 +471,14 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   /**
     * get parikh iamge of BricsAutomaton
     */
-  import ap.terfor.{Formula, Term, TerForConvenience, TermOrder, OneTerm, VariableTerm}
+  import ap.terfor.{
+    Formula,
+    Term,
+    TerForConvenience,
+    TermOrder,
+    OneTerm,
+    VariableTerm
+  }
   import scala.collection.mutable.{
     BitSet => MBitSet,
     HashMap => MHashMap,
@@ -540,7 +547,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         for (finalState <- acceptingStates)
           yield {
             val finalStateInd = state2Index(finalState)
-            val refStates     = transPreStates(finalStateInd)
+            val refStates = transPreStates(finalStateInd)
 
             // FIXME: remove self-loops maybe?
             // [to, Option[from] [labels]]
@@ -548,7 +555,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
               (if (refStates contains initialStateInd)
                  List((initialStateInd, None, List()))
                else List()) ::: // FIXME: why concat?
-                (for (state    <- refStates.iterator;
+                (for (state <- refStates.iterator;
                       preState <- preStates(state))
                   yield (state, Some(preState._1), preState._2)).toList
 
@@ -587,7 +594,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
                 st: ((Int, List[(Int, (IdealInt, VariableTerm))]))
             ): LinearCombination = {
               val (state, state_terms) = st
-              val terms                = state_terms.map(_._2)
+              val terms = state_terms.map(_._2)
 
               if (state == finalStateInd)
                 LinearCombination((IdealInt.ONE, OneTerm) :: terms, order)
@@ -606,7 +613,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             val prodEqs = prodsWithVars
               .map(stateTermsFromTransition)
               .flatten
-              .groupBy(_._1)        // group by state
+              .groupBy(_._1) // group by state
               .map(termsToLinearEq) // translate to each state's equation
               .toList
 
@@ -643,8 +650,10 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             // Production implications: either we didn't use a production, or
             // its corresponding target is greater than zero.
             val prodImps = prodsWithVars
-              .filter{case ((to, _, _), _) => to != finalStateInd}
-              .map{case ((to, _, _), prodVar) => (prodVar === 0) | zVars(to) > 0}
+              .filter { case ((to, _, _), _) => to != finalStateInd }
+              .map {
+                case ((to, _, _), prodVar) => (prodVar === 0) | zVars(to) > 0
+              }
               .toList
 
             // connective
@@ -812,7 +821,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
     */
   lazy val states: Iterable[State] = {
     // do this the hard way to give a deterministic ordering
-    val worklist   = new MStack[State]
+    val worklist = new MStack[State]
     val seenstates = new MLinkedHashSet[State]
 
     worklist.push(initialState)
