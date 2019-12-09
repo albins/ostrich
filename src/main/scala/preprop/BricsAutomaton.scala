@@ -657,19 +657,26 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
               .toList
 
             // connective
-            val zImps =
-              (for (state <- refStates.iterator; if state != finalStateInd)
-                yield {
+            val zImps = refStates
+              .filter(finalState.!=)
+              .map(
+                state =>
                   disjFor(
-                    Iterator(zVars(state) === 0) ++
-                      (for (((to, from, _), prodVar) <- productions.iterator zip prodVars.iterator;
-                            if from contains state)
-                        yield conj(
-                          zVars(state) === zVars(to) + 1,
-                          geqZ(List(prodVar - 1, zVars(to) - 1))
-                        ))
+                    (zVars(state) === 0) ::
+                      prodsWithVars
+                        .filter {
+                          case ((_, from, _), _) => from contains state
+                        }
+                        .map {
+                          case ((to, _, _), prodVar) =>
+                            conj(
+                              zVars(state) === zVars(to) + 1,
+                              geqZ(List(prodVar - 1, zVars(to) - 1))
+                            )
+                        }
                   )
-                }).toList
+              )
+              .toList
 
             val matrix =
               conj(allEqs :: prodNonNeg :: prodImps ::: zImps)
