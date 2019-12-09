@@ -580,8 +580,8 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             ): List[(Int, (IdealInt, VariableTerm))] =
               t match {
                 // Ignore self-loops:
-                case ((to, from, _), _) if from == to => List()
-                case ((to, None, _), v)               => List((to, (IdealInt.MINUS_ONE, v)))
+                case ((to, Some(from), _), _) if from == to => List()
+                case ((to, None, _), v)                     => List((to, (IdealInt.MINUS_ONE, v)))
                 case ((to, Some(from), _), v) =>
                   List((to, (IdealInt.MINUS_ONE, v)), (from, (IdealInt.ONE, v)))
               }
