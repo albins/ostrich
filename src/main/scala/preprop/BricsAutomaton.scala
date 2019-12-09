@@ -602,7 +602,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             }
 
             // [((to, from, registers), Z_prod)]
-            val prodsWithVars = productions.zip(prodVars)
+            val prodsWithVars = productions.zip(prodVars).toList
 
             // equations relating the production counters
             // consistent
@@ -615,7 +615,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
               .flatten
               .groupBy(_._1) // group by state
               .map(termsToLinearEq) // translate to each state's equation
-              .toList
 
             // registers
 
@@ -639,11 +638,10 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             // the...state of register r at state s.
             val rEqs = registers.zipWithIndex
               .map(makeRegisterTerms)
-              .toList
 
             val entryZEq = zVars(finalStateInd) - 1
 
-            val allEqs = eqZ(entryZEq :: prodEqs ::: rEqs)
+            val allEqs = eqZ(Iterator(entryZEq) ++ prodEqs ++ rEqs)
 
             val prodNonNeg = prodVars >= 0
 
@@ -654,10 +652,9 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
               .map {
                 case ((to, _, _), prodVar) => (prodVar === 0) | zVars(to) > 0
               }
-              .toList
 
-            // connective
-            val zImps = refStates
+            
+            val connective = refStates
               .filter(finalState.!=)
               .map(
                 state =>
@@ -676,10 +673,9 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
                         }
                   )
               )
-              .toList
 
             val matrix =
-              conj(allEqs :: prodNonNeg :: prodImps ::: zImps)
+              conj(Iterator(allEqs, prodNonNeg) ++ prodImps ++ connective)
             val rawConstraint =
               exists(prodVars.size + zVars.size, matrix)
 
