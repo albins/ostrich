@@ -655,7 +655,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
             
             val connective = refStates
-              .filter(finalState.!=)
+              .filter(finalStateInd.!=)
               .map(
                 state =>
                   disjFor(
