@@ -498,16 +498,17 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
     oldImage
   }
 
+  // FIXME this method is too long
+  // FIXME: this method makes a mess of which variables belong to the solver,
+  // and which variables are ours
   def parikhImageNew: Unit =
     Exploration.measure("parikhImageNew") {
       import TerForConvenience._
 
-      val state2Index = states.toIndexedSeq.iterator.zipWithIndex.toMap
-
-      val initialStateInd = state2Index(initialState)
+      // FIXME: this probably needs to happen in a for-each loop?
       val finalState = acceptingStates.head
-      val finalStateInd = state2Index(finalState)
 
+      // FIXME What does this do?
       implicit val order = TermOrder.EMPTY.extend(registers.map {
         case IConstant(c) => c
       })
@@ -516,7 +517,8 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       // needed to block this disconnected solution.
       def connectiveTheory(
           solution: SimpleAPI.PartialModel
-      ): Option[ap.parser.IFormula] = { None }
+      ): Option[ap.parser.IFormula] =
+        Exploration.measure("parikhImage::connectiveTheory") { None }
 
       // FIXME use withSolver or whatever it's called
       val solver = SimpleAPI.spawnWithAssertions
@@ -527,7 +529,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         .toMap
 
       // ...but we also need the reverse mapping
-      val varTransition = transitionVar.map(_.swap)
+      // val varTransition = transitionVar.map(_.swap)
 
       // Transition variables are positive
       transitionVar.values.foreach(y => solver.addAssertion(y >= 0))
@@ -561,27 +563,41 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       }
 
       // FIXME this could generalise more betterer
+      // FIXME separate generalisation logic into a separate step, use for both solutions
       def generaliseSolution(
           flowSolution: ap.SimpleAPI.PartialModel
-      ): ap.parser.IFormula = Exploration.measure("generaliseSolution") {
+      ): ap.parser.IFormula =
+        Exploration.measure("parikhImage::generaliseSolution") {
 
-        // We generalise each assignment into use (> 0) or non-use (= 0)
-        def generaliseAssignment(
-            yvalue: (ap.parser.ITerm, Option[ap.basetypes.IdealInt])
-        ): ap.parser.IFormula = {
+          // We generalise each assignment into use (> 0) or non-use (= 0)
+          def generaliseAssignment(
+              yvalue: (ap.parser.ITerm, Option[ap.basetypes.IdealInt])
+          ): ap.parser.IFormula = {
 
-          val (y, Some(assigned)) = yvalue
+            val (y, Some(assigned)) = yvalue
 
-          if (assigned == 0) y === 0 else y > 0
+            if (assigned.intValue == 0) y === 0 else y > 0
+          }
+
+          transitionVar.values
+            .map(y => (y -> (flowSolution eval y)))
+            .filter(_._2 != None)
+            .map(generaliseAssignment)
+            .reduce(_ &&& _)
         }
 
-        transitionVar.values
-          .map(y => (y -> (flowSolution eval y)))
-          .filter(_._2 != None)
-          .map(generaliseAssignment)
-          .reduce(_ &&& _)
+      // FIXME Just generalise ONCE, then generate with quantifiers or constants
+      // from that.
+      def generaliseToQuantified(
+          flowSolution: ap.SimpleAPI.PartialModel
+      ): Conjunction = {
+        val x = for ((yConst, i) <- transitionVar.values.zipWithIndex) yield {
+          val y = v(i)
+          val Some(assigned: IdealInt) = flowSolution eval yConst
+          if (assigned.intValue == 0) y === 0 else y > 0
+        }
 
-        // FIXME do quantifier elimination? Or is that afterwards???
+        exists(flowSolution.interpretation.size, conj(x))
       }
 
       transitions
@@ -595,7 +611,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       // These are the clauses of the Parikh Image
       val image: ArrayBuffer[Formula] = ArrayBuffer()
 
-      println("solver status: " + solver.???)
+      //println("solver status: " + solver.???)
 
       // val solutionStream = Stream
       //   .continually(solver.partialModel)
@@ -606,14 +622,20 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       // solutions, and ditch the arraybuffer
       while (solver.??? == SimpleAPI.ProverStatus.Sat) {
         val flowSolution = solver.partialModel
-        println("solution: " + flowSolution)
 
         val blockedClause = connectiveTheory(flowSolution) match {
           case Some(blockingClause) => blockingClause
           case None => {
-            // FIXME add the solution to image
             val solution = generaliseSolution(flowSolution)
-            // println("generalised solution: " + solution)
+            println("generalised solution: " + solution)
+            val quantifiedSolution = generaliseToQuantified(flowSolution);
+            val eliminatedSolution =
+              Exploration.measure("parikhImage::eliminateQuantifiers") {
+                PresburgerTools.elimQuantifiersWithPreds(quantifiedSolution)
+              }
+            println("Dequantified solution: " + eliminatedSolution)
+            image += eliminatedSolution
+
             !solution
           }
         }
