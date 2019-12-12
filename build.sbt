@@ -7,6 +7,8 @@ lazy val commonSettings = Seq(
   publishTo := Some(
     Resolver.file("file", new File("/home/wv/public_html/maven/"))
   ),
+  fork in run := true,
+  cancelable in Global := true,
   scalacOptions ++= Seq(
     "-deprecation",
     //"-Xfatal-warnings",
@@ -24,6 +26,7 @@ lazy val commonSettings = Seq(
   libraryDependencies += "org.sat4j" % "org.sat4j.core" % "2.3.1",
   libraryDependencies += "org.scalacheck" %% "scalacheck" % "1.14.0" % "test"
 )
+
 
 lazy val root = (project in file("."))
   .settings(commonSettings: _*)

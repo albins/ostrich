@@ -21,6 +21,7 @@ package strsolver.preprop
 import java.io.{FileWriter, PrintWriter}
 
 import strsolver.Regex2AFA
+import ap.SimpleAPI
 import ap.terfor.Term
 import ap.terfor.preds.PredConj
 import ap.parser.{IConstant, ITerm, InputAbsy2Internal, Internal2InputAbsy}
@@ -465,7 +466,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   // registers += AllocRegisterTerm()  //debug
   // (q', σ, q, η) tuple, stored as a map
   val etaMap = new MHashMap[(State, TLabel, State), List[Int]]
-
   addEtaMapsDefault
 
   /**
@@ -490,8 +490,143 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   import ap.basetypes.IdealInt
   import ap.PresburgerTools
 
-  override def parikhImage: Formula =
-    Exploration.measure("length abstraction") {
+  override def parikhImage: Formula = {
+    parikhImageNew
+    val oldImage = parikhImageOld
+
+    // FIXME generate old and new and solve not(old <=> new), if SAT we have a bug
+    oldImage
+  }
+
+  def parikhImageNew: Unit =
+    Exploration.measure("parikhImageNew") {
+      import TerForConvenience._
+
+      val state2Index = states.toIndexedSeq.iterator.zipWithIndex.toMap
+
+      val initialStateInd = state2Index(initialState)
+      val finalState = acceptingStates.head
+      val finalStateInd = state2Index(finalState)
+
+      implicit val order = TermOrder.EMPTY.extend(registers.map {
+        case IConstant(c) => c
+      })
+
+      // Return: either None (solution is connected), or Some(blocking clause)
+      // needed to block this disconnected solution.
+      def connectiveTheory(
+          solution: SimpleAPI.PartialModel
+      ): Option[ap.parser.IFormula] = { None }
+
+      // FIXME use withSolver or whatever it's called
+      val solver = SimpleAPI.spawnWithAssertions
+
+      // Each transition gets a constant
+      val transitionVar = transitions
+        .map(t => (t -> solver.createConstant))
+        .toMap
+
+      // ...but we also need the reverse mapping
+      val varTransition = transitionVar.map(_.swap)
+
+      // Transition variables are positive
+      transitionVar.values.foreach(y => solver.addAssertion(y >= 0))
+
+      def transitionTerms(
+          prod: (State, TLabel, State)
+      ): List[(State, ap.parser.ITerm)] = {
+        val y = transitionVar(prod)
+
+        val (from, _, to) = prod
+
+        // Self-loop: empty list
+        if (from == to) return List()
+
+        List((to, -1 * y), (from, y))
+      }
+
+      def postAsFlowEquation(
+          state_terms: List[(State, ap.parser.ITerm)]
+      ): Unit = {
+        val (state, _) = state_terms.head
+        val stateFlowEq = state_terms.unzip._2.reduce(_ + _)
+        // FIXME: does a state know this?
+        val extraTerm = (if (state == finalState) 1 else 0) - (if (state == initialState)
+                                                                 1
+                                                               else 0)
+        val finalEquation = stateFlowEq + extraTerm === 0
+
+        println(finalEquation)
+        solver.addAssertion(finalEquation)
+      }
+
+      // FIXME this could generalise more betterer
+      def generaliseSolution(
+          flowSolution: ap.SimpleAPI.PartialModel
+      ): ap.parser.IFormula = Exploration.measure("generaliseSolution") {
+
+        // We generalise each assignment into use (> 0) or non-use (= 0)
+        def generaliseAssignment(
+            yvalue: (ap.parser.ITerm, Option[ap.basetypes.IdealInt])
+        ): ap.parser.IFormula = {
+
+          val (y, Some(assigned)) = yvalue
+
+          if (assigned == 0) y === 0 else y > 0
+        }
+
+        transitionVar.values
+          .map(y => (y -> (flowSolution eval y)))
+          .filter(_._2 != None)
+          .map(generaliseAssignment)
+          .reduce(_ &&& _)
+
+        // FIXME do quantifier elimination? Or is that afterwards???
+      }
+
+      transitions
+        .map(transitionTerms)
+        .flatten
+        .toList
+        .groupBy(_._1)
+        .values
+        .foreach(postAsFlowEquation)
+
+      // These are the clauses of the Parikh Image
+      val image: ArrayBuffer[Formula] = ArrayBuffer()
+
+      println("solver status: " + solver.???)
+
+      // val solutionStream = Stream
+      //   .continually(solver.partialModel)
+      //   .takeWhile(_ => solver.??? == SimpleAPI.ProverStatus.Sat)
+      //   .foreach(println)
+
+      // FIXME make this a stream-generating method that streams out generalised
+      // solutions, and ditch the arraybuffer
+      while (solver.??? == SimpleAPI.ProverStatus.Sat) {
+        val flowSolution = solver.partialModel
+        println("solution: " + flowSolution)
+
+        val blockedClause = connectiveTheory(flowSolution) match {
+          case Some(blockingClause) => blockingClause
+          case None => {
+            // FIXME add the solution to image
+            val solution = generaliseSolution(flowSolution)
+            // println("generalised solution: " + solution)
+            !solution
+          }
+        }
+
+        solver.addAssertion(blockedClause)
+
+      }
+
+      println(disjFor(image))
+    }
+
+  def parikhImageOld: Formula =
+    Exploration.measure("parikhImageOld") {
       import TerForConvenience._
 
       val constantSeq = registers.map { case IConstant(c) => c }
@@ -524,12 +659,32 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         for ((s, n) <- transPreStates.iterator.zipWithIndex)
           s += n
 
+        //val worklist = new MStack[(Int, MBitSet)]
+        //worklist ++= acceptingStates.map(state => (state, preStates(state)))
+
+        // for (state <- acceptingStates) {
+        //   val stateIdx = state2Index(state)
+        //   worklist.push((stateIdx, transPreStates(stateIdx)))
+        // }
+
+        // while(!worklist.isEmpty) {
+        //   val (state, incoming) = worklist.pop()
+
+        //   for (target <- outgoing) {
+        //     // JOIN
+        //   }
+
+        //   // PUSH THE DIFF
+
+        // }
+
         var changed = false
         do {
           for (outgoing <- transPreStates) {
             val oldSize = outgoing.size
 
             for (target <- outgoing)
+              // FIXME: only look at the new targets in next iteration!
               outgoing |= transPreStates(target)
 
             changed = outgoing.size > oldSize
@@ -622,7 +777,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             def makeRegisterTerms(ri: (ITerm, Int)): LinearCombination = {
               val (r, i) = ri
               val prodTerms = prodsWithVars
-                .filter { case ((_, from, _), _) => from != None }
+                .filter { case ((_, from, regs), _) => from != None }
                 .map {
                   case ((_, _, regs), prodVar) => (IdealInt(regs(i)), prodVar)
                 }
@@ -653,7 +808,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
                 case ((to, _, _), prodVar) => (prodVar === 0) | zVars(to) > 0
               }
 
-            
             val connective = refStates
               .filter(finalStateInd.!=)
               .map(
@@ -832,9 +986,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
     while (!worklist.isEmpty) {
       val s = worklist.pop
-
-      val dests = new MHashMap[TLabel, MSet[State]]
-        with MMultiMap[TLabel, State]
 
       for ((to, _) <- outgoingTransitions(s)) {
         if (!seenstates.contains(to)) {
