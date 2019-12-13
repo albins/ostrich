@@ -563,7 +563,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       }
 
       // FIXME this could generalise more betterer
-      // FIXME separate generalisation logic into a separate step, use for both solutions
       def generaliseSolution(
           flowSolution: ap.SimpleAPI.PartialModel
       ): ap.parser.IFormula =
@@ -571,33 +570,34 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
           // We generalise each assignment into use (> 0) or non-use (= 0)
           def generaliseAssignment(
-              yvalue: (ap.parser.ITerm, Option[ap.basetypes.IdealInt])
+              yvalue: (ap.parser.ITerm, Option[Int])
           ): ap.parser.IFormula = {
 
             val (y, Some(assigned)) = yvalue
 
-            if (assigned.intValue == 0) y === 0 else y > 0
+            if (assigned == 0) y === 0 else y > 0
           }
 
           transitionVar.values
-            .map(y => (y -> (flowSolution eval y)))
+            .map(y => (y -> ((flowSolution eval y) map (_.intValue))))
             .filter(_._2 != None)
             .map(generaliseAssignment)
             .reduce(_ &&& _)
         }
 
-      // FIXME Just generalise ONCE, then generate with quantifiers or constants
-      // from that.
       def generaliseToQuantified(
           flowSolution: ap.SimpleAPI.PartialModel
       ): Conjunction = {
-        val x = for ((yConst, i) <- transitionVar.values.zipWithIndex) yield {
-          val y = v(i)
-          val Some(assigned: IdealInt) = flowSolution eval yConst
-          if (assigned.intValue == 0) y === 0 else y > 0
-        }
 
-        exists(flowSolution.interpretation.size, conj(x))
+        // FIXME: this is literally the same logic as above
+        val constraints =
+          for ((yConst, i) <- transitionVar.values.zipWithIndex) yield {
+            val y = v(i)
+            val Some(assigned: Int) = (flowSolution eval yConst) map (_.intValue)
+            if (assigned == 0) y === 0 else y > 0
+          }
+
+        exists(flowSolution.interpretation.size, conj(constraints))
       }
 
       transitions
