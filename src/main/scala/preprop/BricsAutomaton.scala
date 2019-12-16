@@ -490,6 +490,8 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   import ap.basetypes.IdealInt
   import ap.PresburgerTools
 
+  type FromLabelTo = (State, TLabel, State)
+
   override def parikhImage: Formula = {
     parikhImageNew
     val oldImage = parikhImageOld
@@ -500,7 +502,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
   // FIXME this method is too long
   // FIXME: this method makes a mess of which variables belong to the solver,
-  // and which variables are ours
+  // and which variables are "ours"
   def parikhImageNew: Unit =
     Exploration.measure("parikhImageNew") {
       import TerForConvenience._
@@ -516,7 +518,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       // Return: either None (solution is connected), or Some(blocking clause)
       // needed to block this disconnected solution.
       def connectiveTheory(
-          solution: SimpleAPI.PartialModel
+          solution: Set[FromLabelTo]
       ): Option[ap.parser.IFormula] =
         Exploration.measure("parikhImage::connectiveTheory") { None }
 
@@ -535,7 +537,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       transitionVar.values.foreach(y => solver.addAssertion(y >= 0))
 
       def transitionTerms(
-          prod: (State, TLabel, State)
+          prod: (FromLabelTo)
       ): List[(State, ap.parser.ITerm)] = {
         val y = transitionVar(prod)
 
@@ -548,11 +550,10 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       }
 
       def postAsFlowEquation(
-          state_terms: List[(State, ap.parser.ITerm)]
+          stateTerms: List[(State, ap.parser.ITerm)]
       ): Unit = {
-        val (state, _) = state_terms.head
-        val stateFlowEq = state_terms.unzip._2.reduce(_ + _)
-        // FIXME: does a state know this?
+        val (state, _) = stateTerms.head
+        val stateFlowEq = stateTerms.unzip._2.reduce(_ + _)
         val extraTerm = (if (state == finalState) 1 else 0) - (if (state == initialState)
                                                                  1
                                                                else 0)
@@ -562,42 +563,52 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         solver.addAssertion(finalEquation)
       }
 
-      // FIXME this could generalise more betterer
-      def generaliseSolution(
+      def selectEdgesFrom(
           flowSolution: ap.SimpleAPI.PartialModel
-      ): ap.parser.IFormula =
-        Exploration.measure("parikhImage::generaliseSolution") {
+      ): Set[FromLabelTo] =
+        Exploration.measure("parikhImage::selectEdgesFrom") {
 
-          // We generalise each assignment into use (> 0) or non-use (= 0)
-          def generaliseAssignment(
-              yvalue: (ap.parser.ITerm, Option[Int])
-          ): ap.parser.IFormula = {
+          def transitionInSolution(
+              transitionAndY: (FromLabelTo, ap.parser.ITerm)
+          ): Boolean = {
+            val (_, y) = transitionAndY
+            println((flowSolution eval y) map (_.intValue))
 
-            val (y, Some(assigned)) = yvalue
-
-            if (assigned == 0) y === 0 else y > 0
+            (flowSolution eval y) map (_.intValue) match {
+              case None             => false
+              case Some(x) if x > 0 => true
+              case _                => false
+            }
           }
 
-          transitionVar.values
-            .map(y => (y -> ((flowSolution eval y) map (_.intValue))))
-            .filter(_._2 != None)
-            .map(generaliseAssignment)
-            .reduce(_ &&& _)
+          transitionVar
+            .filter(transitionInSolution)
+            .keys
+            .toSet
         }
 
-      def generaliseToQuantified(
-          flowSolution: ap.SimpleAPI.PartialModel
+      def edgesToQuantified(
+          selectedEdges: Set[FromLabelTo]
       ): Conjunction = {
 
-        // FIXME: this is literally the same logic as above
-        val constraints =
-          for ((yConst, i) <- transitionVar.values.zipWithIndex) yield {
-            val y = v(i)
-            val Some(assigned: Int) = (flowSolution eval yConst) map (_.intValue)
-            if (assigned == 0) y === 0 else y > 0
+        val constraints = transitionVar.keys.zipWithIndex
+          .map {
+            case (t, i) =>
+              if (selectedEdges contains t) v(i) > 0 else v(i) === 0
           }
 
-        exists(flowSolution.interpretation.size, conj(constraints))
+        exists(transitionVar.size, conj(constraints))
+      }
+
+      def edgesToFlowConstraint(
+          selectedEdges: Set[FromLabelTo]
+      ): ap.parser.IFormula = {
+
+        transitionVar
+          .map {
+            case (t, y) => if (selectedEdges contains t) y > 0 else y === 0
+          }
+          .reduce(_ &&& _)
       }
 
       transitions
@@ -622,24 +633,24 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       // solutions, and ditch the arraybuffer
       while (solver.??? == SimpleAPI.ProverStatus.Sat) {
         val flowSolution = solver.partialModel
+        val selectedEdges = selectEdgesFrom(flowSolution)
+        println("selected edges: " + selectedEdges)
 
-        val blockedClause = connectiveTheory(flowSolution) match {
+        val blockedClause = connectiveTheory(selectedEdges) match {
           case Some(blockingClause) => blockingClause
           case None => {
-            val solution = generaliseSolution(flowSolution)
-            println("generalised solution: " + solution)
-            val quantifiedSolution = generaliseToQuantified(flowSolution);
+            val quantifiedSolution = edgesToQuantified(selectedEdges);
             val eliminatedSolution =
               Exploration.measure("parikhImage::eliminateQuantifiers") {
                 PresburgerTools.elimQuantifiersWithPreds(quantifiedSolution)
               }
             println("Dequantified solution: " + eliminatedSolution)
             image += eliminatedSolution
-
-            !solution
+            !edgesToFlowConstraint(selectedEdges)
           }
         }
 
+        println("Blocking solution:" + blockedClause)
         solver.addAssertion(blockedClause)
 
       }
