@@ -489,6 +489,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   import ap.terfor.conjunctions.{Conjunction, ReduceWithConjunction}
   import ap.basetypes.IdealInt
   import ap.PresburgerTools
+  import scala.annotation.tailrec
 
   type FromLabelTo = (State, TLabel, State)
 
@@ -500,6 +501,147 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
     oldImage
   }
 
+  // Return: either None (solution is connected), or Some(blocking clause)
+  // needed to block this disconnected solution.
+  // FIXME we might want to pre-compute components and use that for
+  // optimisations along the way.
+  private def connectiveTheory(
+      solution: Set[FromLabelTo],
+      finalState: State
+  ): Option[Map[FromLabelTo, Set[FromLabelTo]]] =
+    Exploration.measure("parikhImage::connectiveTheory") {
+
+      // FIXME these should NOT be recomputed
+      val stateSeq = states.toIndexedSeq
+      val state2Index = stateSeq.iterator.zipWithIndex.toMap
+
+      // This is the graph constructed by the solution:
+      val solutionNext = solution
+        .map { case (from, _, to) => (state2Index(from), state2Index(to)) }
+        .toList
+        .groupBy(_._1)
+        .mapValues(nexts => nexts.unzip._2)
+        .toMap
+
+      val transitionsToState = transitions
+        .map { t =>
+          (state2Index(t._3), t)
+        }
+        .toList
+        .groupBy(_._1)
+        .map { case (s, lst) => s -> lst.map(x => x._2) }
+        .toMap
+
+      val statesInPath = solution
+        .map { case (from, _, to) => List(from, to) }
+        .flatten
+        .toSet
+        .map(state2Index)
+
+      // FIXME: visitor mixes getting nodes and doing things with nodes
+      @tailrec
+      def bfs(queue: Stream[Int], visitor: Int => Stream[Int]): Unit = {
+        if (!queue.isEmpty)
+          bfs(queue.tail append visitor(queue.head), visitor)
+      }
+
+      // Perform a BFS starting in startNode, returning a set of unreached
+      // states
+      def unreachableFrom(startNode: Int): MBitSet = {
+
+        val stateIdxUnseen = MBitSet(statesInPath.toSeq: _*)
+
+        def markSeen(state: Int): Stream[Int] = {
+          if (state == state2Index(finalState)) {
+            Stream()
+          } else {
+            solutionNext(state)
+              .filter(stateIdxUnseen contains _)
+              .map { s =>
+                stateIdxUnseen(s) = false
+                s
+              }
+              .toStream
+          }
+        }
+
+        stateIdxUnseen(state2Index(initialState)) = false
+        bfs(Stream(state2Index(initialState)), markSeen)
+
+        stateIdxUnseen
+      }
+
+      // Compute a set of cycles from a set of possible starting nodes. We know
+      // it's safe to start anywhere because they all participate in a cycle of
+      // 1 - all nodes, so we always get the full cycle wherever we start.
+      def cyclesStartingIn(nodes: Seq[Int]) = {
+
+        val stateIdxUnseen = MBitSet(nodes: _*)
+        val cycles: ArrayBuffer[Set[Int]] = ArrayBuffer()
+
+        while (!stateIdxUnseen.isEmpty) {
+          val inCycle: ArrayBuffer[Int] = ArrayBuffer()
+
+          // FIXME: these cycles might be connected to each other in the big
+          // graph and form a bigger cycle, which means they should be part of
+          // the global min-cut analysis
+          // FIXME: this is reproduced code
+          def collectCycle(state: Int): Stream[Int] = {
+            solutionNext(state)
+              .filter(stateIdxUnseen contains _)
+              .map { s =>
+                stateIdxUnseen(s) = false
+                inCycle += s
+                s
+              }
+              .toStream
+          }
+          val startNode = stateIdxUnseen.head
+          stateIdxUnseen(startNode) = false
+          inCycle += startNode
+          bfs(Stream(startNode), collectCycle)
+          cycles += inCycle.toSet
+
+        }
+
+        cycles.toSet
+      }
+
+      // Compute the smallest set of transitions required to sever the cycle
+      // from the rest of the graph
+      // FIXME: this is mocked: it currently returns all transitions in
+      def minCutBetween(cycle: Set[Int]) = {
+        val transitionsIn = cycle
+          .flatMap(s => transitionsToState.get(s))
+          .flatten
+          .toSet
+
+        val causes = solution intersect transitionsIn
+
+        // FIXME we can have multiple causes
+        (causes.head, transitionsIn -- causes)
+      }
+
+      // Compute a set of possibly unreached states
+      val unreached = unreachableFrom(state2Index(initialState))
+
+      if (unreached.isEmpty) return None
+
+      println("Unreached nodes: " + unreached.toSeq)
+
+      val cycles = cyclesStartingIn(unreached.toSeq)
+      println("found cycles: " + cycles)
+
+      // node in cycle => set of transitions which might cause it to be included
+      // FIXME: map the transition into the cycle
+      val implications = cycles
+        .map(minCutBetween(_))
+        .toMap
+
+      Some(implications)
+
+    }
+
   // FIXME this method is too long
   // FIXME: this method makes a mess of which variables belong to the solver,
   // and which variables are "ours"
@@ -510,17 +652,13 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       // FIXME: this probably needs to happen in a for-each loop?
       val finalState = acceptingStates.head
 
+      val stateSeq = states.toIndexedSeq
+      val state2Index = stateSeq.iterator.zipWithIndex.toMap
+
       // FIXME What does this do?
       implicit val order = TermOrder.EMPTY.extend(registers.map {
         case IConstant(c) => c
       })
-
-      // Return: either None (solution is connected), or Some(blocking clause)
-      // needed to block this disconnected solution.
-      def connectiveTheory(
-          solution: Set[FromLabelTo]
-      ): Option[ap.parser.IFormula] =
-        Exploration.measure("parikhImage::connectiveTheory") { None }
 
       // FIXME use withSolver or whatever it's called
       val solver = SimpleAPI.spawnWithAssertions
@@ -530,15 +668,10 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         .map(t => (t -> solver.createConstant))
         .toMap
 
-      // ...but we also need the reverse mapping
-      // val varTransition = transitionVar.map(_.swap)
-
       // Transition variables are positive
       transitionVar.values.foreach(y => solver.addAssertion(y >= 0))
 
-      def transitionTerms(
-          prod: (FromLabelTo)
-      ): List[(State, ap.parser.ITerm)] = {
+      def transitionTerms(prod: FromLabelTo): List[(State, ap.parser.ITerm)] = {
         val y = transitionVar(prod)
 
         val (from, _, to) = prod
@@ -558,8 +691,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
                                                                  1
                                                                else 0)
         val finalEquation = stateFlowEq + extraTerm === 0
-
-        println(finalEquation)
         solver.addAssertion(finalEquation)
       }
 
@@ -572,7 +703,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
               transitionAndY: (FromLabelTo, ap.parser.ITerm)
           ): Boolean = {
             val (_, y) = transitionAndY
-            println((flowSolution eval y) map (_.intValue))
 
             (flowSolution eval y) map (_.intValue) match {
               case None             => false
@@ -587,10 +717,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             .toSet
         }
 
-      def edgesToQuantified(
-          selectedEdges: Set[FromLabelTo]
-      ): Conjunction = {
-
+      def edgesToQuantified(selectedEdges: Set[FromLabelTo]): Conjunction = {
         val constraints = transitionVar.keys.zipWithIndex
           .map {
             case (t, i) =>
@@ -611,6 +738,31 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
           .reduce(_ &&& _)
       }
 
+      def implicationsToBlockingClause(
+          implications: Map[FromLabelTo, Set[FromLabelTo]]
+      ): ap.parser.IFormula = {
+
+        def fmt(t: FromLabelTo) =
+          s"(${state2Index(t._1)}, ${state2Index(t._3)})"
+
+        for ((included, correction) <- implications) {
+          println(
+            fmt(included) +
+              " ==> " +
+              "(" + correction.map(fmt(_)).mkString(" || ") + ")"
+          )
+        }
+
+        implications
+          .map {
+            case (t, connectors) =>
+              (transitionVar(t) > 0) ===> connectors
+                .map(transitionVar(_) > 0)
+                .reduce(_ ||| _)
+          }
+          .reduce(_ &&& _)
+      }
+
       transitions
         .map(transitionTerms)
         .flatten
@@ -622,22 +774,21 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       // These are the clauses of the Parikh Image
       val image: ArrayBuffer[Formula] = ArrayBuffer()
 
-      //println("solver status: " + solver.???)
-
-      // val solutionStream = Stream
-      //   .continually(solver.partialModel)
-      //   .takeWhile(_ => solver.??? == SimpleAPI.ProverStatus.Sat)
-      //   .foreach(println)
+      for ((from, _, to) <- transitions) {
+        println(state2Index(from) + " -> " + state2Index(to))
+      }
 
       // FIXME make this a stream-generating method that streams out generalised
       // solutions, and ditch the arraybuffer
       while (solver.??? == SimpleAPI.ProverStatus.Sat) {
         val flowSolution = solver.partialModel
         val selectedEdges = selectEdgesFrom(flowSolution)
-        println("selected edges: " + selectedEdges)
+        println("selected edges: " + selectedEdges.map {
+          case (from, _, to) => (state2Index(from), state2Index(to))
+        })
 
-        val blockedClause = connectiveTheory(selectedEdges) match {
-          case Some(blockingClause) => blockingClause
+        val blockedClause = connectiveTheory(selectedEdges, finalState) match {
+          case Some(implications) => implicationsToBlockingClause(implications)
           case None => {
             val quantifiedSolution = edgesToQuantified(selectedEdges);
             val eliminatedSolution =
@@ -650,7 +801,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
           }
         }
 
-        println("Blocking solution:" + blockedClause)
+        // println("Blocking clause:" + blockedClause)
         solver.addAssertion(blockedClause)
 
       }
