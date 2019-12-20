@@ -584,7 +584,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
           // FIXME: these cycles might be connected to each other in the big
           // graph and form a bigger cycle, which means they should be part of
-          // the global min-cut analysis
+          // the global min-cut analysis, or maybe we don't care?
           // FIXME: this is reproduced code
           def collectCycle(state: Int): Stream[Int] = {
             solutionNext(state)
@@ -609,8 +609,8 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
       // Compute the smallest set of transitions required to sever the cycle
       // from the rest of the graph
-      // FIXME: this is mocked: it currently returns all transitions in
-      def minCutBetween(cycle: Set[Int]) = {
+      // FIXME: this is mocked: it currently returns all transitions into the cycle
+      def causeResolution(cycle: Set[Int]) = {
         val transitionsIn = cycle
           .flatMap(s => transitionsToState.get(s))
           .flatten
@@ -618,7 +618,8 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
         val causes = solution intersect transitionsIn
 
-        // FIXME we can have multiple causes
+        // FIXME we can have multiple causes?
+        assert(causes.size == 1)
         (causes.head, transitionsIn -- causes)
       }
 
@@ -627,38 +628,42 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
       if (unreached.isEmpty) return None
 
-      println("Unreached nodes: " + unreached.toSeq)
-
       val cycles = cyclesStartingIn(unreached.toSeq)
-      println("found cycles: " + cycles)
 
       // node in cycle => set of transitions which might cause it to be included
       // FIXME: map the transition into the cycle
       val implications = cycles
-        .map(minCutBetween(_))
+        .map(causeResolution(_))
         .toMap
 
       Some(implications)
 
     }
 
+
+  def parikhImageNew: Formula = Exploration.measure("parikhImageNew") {
+    import TerForConvenience._
+    // FIXME What does this do?
+    implicit val order = TermOrder.EMPTY.extend(registers.map {
+                                                  case IConstant(c) => c
+                                                })
+
+    disjFor(acceptingStates.map(parikhPathToEnd))
+  }
+
   // FIXME this method is too long
   // FIXME: this method makes a mess of which variables belong to the solver,
   // and which variables are "ours"
-  def parikhImageNew: Unit =
-    Exploration.measure("parikhImageNew") {
+  def parikhPathToEnd(finalState: State): Formula =
+    Exploration.measure("parikhImagePathToEnd") {
       import TerForConvenience._
-
-      // FIXME: this probably needs to happen in a for-each loop?
-      val finalState = acceptingStates.head
 
       val stateSeq = states.toIndexedSeq
       val state2Index = stateSeq.iterator.zipWithIndex.toMap
 
-      // FIXME What does this do?
       implicit val order = TermOrder.EMPTY.extend(registers.map {
-        case IConstant(c) => c
-      })
+                                                  case IConstant(c) => c
+                                                })
 
       // FIXME use withSolver or whatever it's called
       val solver = SimpleAPI.spawnWithAssertions
@@ -780,9 +785,13 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
       // FIXME make this a stream-generating method that streams out generalised
       // solutions, and ditch the arraybuffer
+      var previousSolution: Option[Any] = None
+
       while (solver.??? == SimpleAPI.ProverStatus.Sat) {
         val flowSolution = solver.partialModel
         val selectedEdges = selectEdgesFrom(flowSolution)
+        previousSolution map (x => assert(x != selectedEdges, s"Generated ${flowSolution} twice"))
+        previousSolution = Some(selectedEdges)
         println("selected edges: " + selectedEdges.map {
           case (from, _, to) => (state2Index(from), state2Index(to))
         })
@@ -790,7 +799,8 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         val blockedClause = connectiveTheory(selectedEdges, finalState) match {
           case Some(implications) => implicationsToBlockingClause(implications)
           case None => {
-            val quantifiedSolution = edgesToQuantified(selectedEdges);
+            println("quantified version: " + edgesToQuantified(selectedEdges))
+            val quantifiedSolution = edgesToQuantified(selectedEdges)
             val eliminatedSolution =
               Exploration.measure("parikhImage::eliminateQuantifiers") {
                 PresburgerTools.elimQuantifiersWithPreds(quantifiedSolution)
@@ -801,12 +811,13 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
           }
         }
 
-        // println("Blocking clause:" + blockedClause)
+        println("Blocking clause:" + blockedClause)
         solver.addAssertion(blockedClause)
 
       }
 
-      println(disjFor(image))
+      // FIXME: where does the register variables come into this?
+      disjFor(image)
     }
 
   def parikhImageOld: Formula =
@@ -842,25 +853,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
         for ((s, n) <- transPreStates.iterator.zipWithIndex)
           s += n
-
-        //val worklist = new MStack[(Int, MBitSet)]
-        //worklist ++= acceptingStates.map(state => (state, preStates(state)))
-
-        // for (state <- acceptingStates) {
-        //   val stateIdx = state2Index(state)
-        //   worklist.push((stateIdx, transPreStates(stateIdx)))
-        // }
-
-        // while(!worklist.isEmpty) {
-        //   val (state, incoming) = worklist.pop()
-
-        //   for (target <- outgoing) {
-        //     // JOIN
-        //   }
-
-        //   // PUSH THE DIFF
-
-        // }
 
         var changed = false
         do {
