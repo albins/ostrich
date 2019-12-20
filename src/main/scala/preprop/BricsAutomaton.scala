@@ -640,13 +640,12 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
     }
 
-
   def parikhImageNew: Formula = Exploration.measure("parikhImageNew") {
     import TerForConvenience._
     // FIXME What does this do?
     implicit val order = TermOrder.EMPTY.extend(registers.map {
-                                                  case IConstant(c) => c
-                                                })
+      case IConstant(c) => c
+    })
 
     disjFor(acceptingStates.map(parikhPathToEnd))
   }
@@ -662,8 +661,8 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       val state2Index = stateSeq.iterator.zipWithIndex.toMap
 
       implicit val order = TermOrder.EMPTY.extend(registers.map {
-                                                  case IConstant(c) => c
-                                                })
+        case IConstant(c) => c
+      })
 
       // FIXME use withSolver or whatever it's called
       val solver = SimpleAPI.spawnWithAssertions
@@ -673,8 +672,30 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         .map(t => (t -> solver.createConstant))
         .toMap
 
+      val registerVar = registers.map(r => (r -> solver.createConstant)).toMap
+
       // Transition variables are positive
-      transitionVar.values.foreach(y => solver.addAssertion(y >= 0))
+      solver addAssertion (transitionVar.values.toSeq >= 0)
+
+      def registerEqTransitions(xi: (ITerm, Int)) = {
+        val (x, registerIdx) = xi
+        transitionVar
+          .map {
+            case (t, y) =>
+              etaMap(t)(registerIdx) * y
+          }
+          .reduce(_ +++ _) === x
+      }
+
+      val registerEqs =
+        registerVar.values.zipWithIndex
+          .map(registerEqTransitions(_))
+          .reduce(_ &&& _)
+
+      println("register equations: " + registerEqs)
+
+      // x_r = sum(r in transition y)(|r| * y)
+      solver.addAssertion(registerEqs)
 
       def transitionTerms(prod: FromLabelTo): List[(State, ap.parser.ITerm)] = {
         val y = transitionVar(prod)
@@ -695,7 +716,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         val extraTerm = (if (state == finalState) 1 else 0) - (if (state == initialState)
                                                                  1
                                                                else 0)
-        val finalEquation = stateFlowEq + extraTerm === 0
+        val finalEquation = stateFlowEq +++ extraTerm === 0
         solver.addAssertion(finalEquation)
       }
 
@@ -722,14 +743,14 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             .toSet
         }
 
-      def edgesToQuantified(selectedEdges: Set[FromLabelTo]): Conjunction = {
-        val constraints = transitionVar.keys.zipWithIndex
-          .map {
-            case (t, i) =>
-              if (selectedEdges contains t) v(i) > 0 else v(i) === 0
-          }
-
-        exists(transitionVar.size, conj(constraints))
+      def edgesToConjunction(selectedEdges: Set[FromLabelTo]): Conjunction = {
+        conj(
+          transitionVar.keys.zipWithIndex
+            .map {
+              case (t, i) =>
+                if (selectedEdges contains t) v(i) > 0 else v(i) === 0
+            }
+        )
       }
 
       def edgesToFlowConstraint(
@@ -790,7 +811,9 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       while (solver.??? == SimpleAPI.ProverStatus.Sat) {
         val flowSolution = solver.partialModel
         val selectedEdges = selectEdgesFrom(flowSolution)
-        previousSolution map (x => assert(x != selectedEdges, s"Generated ${flowSolution} twice"))
+        previousSolution map (
+            x => assert(x != selectedEdges, s"Generated ${flowSolution} twice")
+        )
         previousSolution = Some(selectedEdges)
         println("selected edges: " + selectedEdges.map {
           case (from, _, to) => (state2Index(from), state2Index(to))
@@ -799,8 +822,13 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         val blockedClause = connectiveTheory(selectedEdges, finalState) match {
           case Some(implications) => implicationsToBlockingClause(implications)
           case None => {
-            println("quantified version: " + edgesToQuantified(selectedEdges))
-            val quantifiedSolution = edgesToQuantified(selectedEdges)
+
+            val quantifiedSolution =
+              exists(
+                transitionVar.size,
+                // FIXME add registers!
+                edgesToConjunction(selectedEdges)
+              )
             val eliminatedSolution =
               Exploration.measure("parikhImage::eliminateQuantifiers") {
                 PresburgerTools.elimQuantifiersWithPreds(quantifiedSolution)
