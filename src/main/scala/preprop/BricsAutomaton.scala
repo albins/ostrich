@@ -665,15 +665,11 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       case IConstant(c) => c
     })
 
-    var currentSolution = Conjunction.FALSE
-
     println("# accepting: " + acceptingStates.size)
-    for (s <- acceptingStates) {
-      val newSol = parikhPathToEnd(s, currentSolution)
-      currentSolution = disjFor(currentSolution, newSol)
-    }
-
-    currentSolution
+    acceptingStates.foldRight(Conjunction.FALSE)(
+      (finalState, currentSolution) =>
+        disjFor(parikhPathToEnd(finalState, currentSolution), currentSolution)
+    )
   }
 
   // FIXME this method is too long
