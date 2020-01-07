@@ -23,9 +23,10 @@ import java.io.{FileWriter, PrintWriter}
 import ap.SimpleAPI
 import ap.SimpleAPI.ProverStatus
 import ap.basetypes.IdealInt
-import ap.parser.{Internal2InputAbsy, SymbolCollector}
+import ap.parser.{Internal2InputAbsy, SymbolCollector, IFormula}
 import ap.terfor._
 import ap.terfor.linearcombination.LinearCombination
+import ap.terfor.conjunctions.Conjunction
 import ap.util.Seqs
 import strsolver.{Flags, IntConstraintStore}
 
@@ -647,42 +648,55 @@ abstract class Exploration(
 
       SimpleAPI.withProver { p =>
         import p._
-        val constantTermSet = new MHashSet[ConstantTerm]()
+
+        val o = IntConstraintStore.getOrder
+        addConstantsRaw(o sort o.orderedConstants)
+
+        def addConst(c : ConstantTerm) : Unit =
+          if (!(order.orderedConstants contains c))
+            addConstantRaw(c)
+
+        def addConsts(cs : Iterable[ConstantTerm]) : Unit =
+          cs map addConst
+
+        def addConstsFrom(f : Formula) : Unit = f match {
+          case f : Conjunction =>
+            addConsts(f.order sort f.constants)
+        }
+
+        def addConstsFromI(f : IFormula) : Unit =
+          addConsts(SymbolCollector constantsSorted f)
 
         // println("output parikh formula")
         // parikhIntFormula.foreach{case formula => {SMTLineariser((formula)); println()}}
 
         // the input int constraints
-        val inputIntFormula = IntConstraintStore()
-        constantTermSet ++= SymbolCollector constantsSorted Internal2InputAbsy(
-          inputIntFormula
-        )
-        addAssertion(inputIntFormula)
+        addAssertion(IntConstraintStore())
+
+        // the derived int constraints, e.g from substr and lenth relation
+        addAssertion(StoreLC())
+        println("product all atom automaton")
+        val finalCons = getProductAuts(tmpBuffer)
+        println("begin to compute parikh image")
+        val parikhIntFormula = getAutsParikhImage(finalCons)
+        parikhIntFormula.foreach {
+          f => {
+            addConstsFrom(f)
+            addAssertion(f)
+          }
+        }
+
+        println("parikh image compute finished")
 
         // the preop int constraints
         for (i <- 0 to LCStack.size - 1) {
           val preOpIntFormula = LCStack(i)
           preOpIntFormula().foreach {
-            case a => constantTermSet ++= SymbolCollector.constantsSorted((a))
+            a => addConstsFromI(a)
           }
           preOpIntFormula().foreach(addAssertion(_))
         }
 
-        // the derived int constraints, e.g from substr and lenth relation
-        constantTermSet ++= SymbolCollector constantsSorted StoreLC()
-        addAssertion(StoreLC())
-        println("product all atom automaton")
-        val finalCons = getProductAuts(tmpBuffer)
-        println("begin to compute parikh image")
-        val parikhIntFormula =
-          getAutsParikhImage(finalCons).map(Internal2InputAbsy(_))
-        parikhIntFormula.foreach {
-          case formula =>
-            constantTermSet ++= SymbolCollector.constantsSorted(formula)
-        }
-        parikhIntFormula.foreach(addAssertion(_))
-        println("parikh image compute finished")
-        addConstantsRaw(constantTermSet)
         println(???)
         ??? match {
           case ProverStatus.Sat => throw FoundModel(model.toMap)

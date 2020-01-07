@@ -111,7 +111,7 @@ class PrepropSolver {
     val inputIntFormula = goal.facts.arithConj
 
     IntConstraintStore.setFormula(inputIntFormula)
-    // IntConstraintStore.setOrder(goal.order)
+    IntConstraintStore.setOrder(goal.order)
     implicit val order = goal.order
     val regex2AFA = new Regex2AFA(atoms)
     // P0 = length(x), then store (x, P0) to lenVar

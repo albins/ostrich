@@ -22,9 +22,11 @@ import java.io.{FileWriter, PrintWriter}
 
 import strsolver.Regex2AFA
 import ap.SimpleAPI
-import ap.terfor.Term
+import ap.terfor.{Term, ConstantTerm}
 import ap.terfor.preds.PredConj
-import ap.parser.{IConstant, ITerm, InputAbsy2Internal, Internal2InputAbsy}
+import ap.terfor.substitutions.ConstantSubst
+import ap.parser.{IConstant, ITerm, InputAbsy2Internal, Internal2InputAbsy,
+                  IExpression, IFormula}
 import dk.brics.automaton.{
   BasicAutomata,
   BasicOperations,
@@ -494,11 +496,16 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   type FromLabelTo = (State, TLabel, State)
 
   override def parikhImage: Formula = {
-    parikhImageNew
-    val oldImage = parikhImageOld
+    println("==========================================")
+    
+    val newImage = parikhImageNew
+    println("new image: " + newImage)
+
+//    val oldImage = parikhImageOld
+//    println("old image: " + oldImage)
 
     // FIXME generate old and new and solve not(old <=> new), if SAT we have a bug
-    oldImage
+    newImage
   }
 
   // Return: either None (solution is connected), or Some(blocking clause)
@@ -647,52 +654,71 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       case IConstant(c) => c
     })
 
-    disjFor(acceptingStates.map(parikhPathToEnd))
+    var currentSolution = Conjunction.FALSE
+
+    println("# accepting: " + acceptingStates.size)
+    for (s <- acceptingStates) {
+      val newSol = parikhPathToEnd(s, currentSolution)
+      currentSolution = disjFor(currentSolution, newSol)
+    }
+
+    currentSolution
   }
 
   // FIXME this method is too long
   // FIXME: this method makes a mess of which variables belong to the solver,
   // and which variables are "ours"
-  def parikhPathToEnd(finalState: State): Formula =
+  def parikhPathToEnd(finalState: State,
+                      blockingConstraint : Formula): Formula =
     Exploration.measure("parikhImagePathToEnd") {
       import TerForConvenience._
 
       val stateSeq = states.toIndexedSeq
       val state2Index = stateSeq.iterator.zipWithIndex.toMap
 
-      implicit val order = TermOrder.EMPTY.extend(registers.map {
-        case IConstant(c) => c
-      })
-
       // FIXME use withSolver or whatever it's called
-      val solver = SimpleAPI.spawnWithAssertions
+      val solver = SimpleAPI.spawnWithLog // WithAssertions
+
+      for (IConstant(c) <- registers)
+        solver.addConstantRaw(c)
 
       // Each transition gets a constant
-      val transitionVar = transitions
+      val transitionVarSeq = transitions
         .map(t => (t -> solver.createConstant))
-        .toMap
+        .toVector
+      val transitionVar = transitionVarSeq.toMap
 
-      val registerVar = registers.map(r => (r -> solver.createConstant)).toMap
+      val registerVarSeq =
+        registers.map(r => (r -> solver.createConstant)).toVector
+      val registerVar = registerVarSeq.toMap
+
+      implicit val order = solver.order
+
+      val registerInvMap : Map[ConstantTerm, Term] =
+        registerVar.map { case (IConstant(d), IConstant(c)) => d -> c }.toMap
+
+      solver.addAssertion(
+        Conjunction.negate(ConstantSubst(registerInvMap, order)(blockingConstraint), order))
 
       // Transition variables are positive
       solver addAssertion (transitionVar.values.toSeq >= 0)
 
       def registerEqTransitions(xi: (ITerm, Int)) = {
         val (x, registerIdx) = xi
-        transitionVar
-          .map {
-            case (t, y) =>
-              etaMap(t)(registerIdx) * y
-          }
-          .reduce(_ +++ _) === x
+        IExpression.sum(
+          for ((t, y) <- transitionVarSeq;
+               coeff = etaMap(t)(registerIdx);
+               if coeff != 0)
+          yield (coeff * y)
+        ) === x
       }
 
       val registerEqs =
-        registerVar.values.zipWithIndex
-          .map(registerEqTransitions(_))
-          .reduce(_ &&& _)
+        IExpression.and(
+          registerVarSeq.map(_._2).zipWithIndex
+            .map(registerEqTransitions(_)))
 
-      println("register equations: " + registerEqs)
+//      println("register equations: " + registerEqs)
 
       // x_r = sum(r in transition y)(|r| * y)
       solver.addAssertion(registerEqs)
@@ -708,6 +734,8 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         List((to, -1 * y), (from, y))
       }
 
+      val flowEquations = new ArrayBuffer[IFormula]
+
       def postAsFlowEquation(
           stateTerms: List[(State, ap.parser.ITerm)]
       ): Unit = {
@@ -718,6 +746,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
                                                                else 0)
         val finalEquation = stateFlowEq +++ extraTerm === 0
         solver.addAssertion(finalEquation)
+        flowEquations += finalEquation
       }
 
       def selectEdgesFrom(
@@ -753,6 +782,17 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         )
       }
 
+      def edgesToConjunctionI(selectedEdges: Set[FromLabelTo]): IFormula = {
+        import IExpression._
+        and(
+          transitionVar.iterator
+            .map {
+              case (t, c) =>
+                if (selectedEdges contains t) (c > 0) else (c === 0)
+            }
+        )
+      }
+
       def edgesToFlowConstraint(
           selectedEdges: Set[FromLabelTo]
       ): ap.parser.IFormula = {
@@ -782,9 +822,8 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         implications
           .map {
             case (t, connectors) =>
-              (transitionVar(t) > 0) ===> connectors
-                .map(transitionVar(_) > 0)
-                .reduce(_ ||| _)
+              (transitionVar(t) > 0) ===>
+              IExpression.or(connectors.map(transitionVar(_) > 0))
           }
           .reduce(_ &&& _)
       }
@@ -800,9 +839,17 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       // These are the clauses of the Parikh Image
       val image: ArrayBuffer[Formula] = ArrayBuffer()
 
-      for ((from, _, to) <- transitions) {
-        println(state2Index(from) + " -> " + state2Index(to))
-      }
+//      for ((from, _, to) <- transitions) {
+//        println(state2Index(from) + " -> " + state2Index(to))
+//      }
+
+      // start a second solver for QE
+      val qeSolver = SimpleAPI.spawn // WithAssertions
+
+      qeSolver.addConstantsRaw(solver.order sort solver.order.orderedConstants)
+
+      println("" + transitions.size + " transitions")
+      println("" + flowEquations.size + " flow equations")
 
       // FIXME make this a stream-generating method that streams out generalised
       // solutions, and ditch the arraybuffer
@@ -820,32 +867,57 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         })
 
         val blockedClause = connectiveTheory(selectedEdges, finalState) match {
-          case Some(implications) => implicationsToBlockingClause(implications)
+          case Some(implications) => {
+            println("Disconnected")
+            implicationsToBlockingClause(implications)
+          }
+          
           case None => {
 
+            val matrix =
+              edgesToConjunctionI(selectedEdges) &&&
+              registerEqs &&&
+              IExpression.and(flowEquations)
+
+            val elimSol =
+              qeSolver.projectEx(matrix, registerVar.values)
+
+/*
             val quantifiedSolution =
               exists(
                 transitionVar.size,
                 // FIXME add registers!
                 edgesToConjunction(selectedEdges)
               )
+
             val eliminatedSolution =
               Exploration.measure("parikhImage::eliminateQuantifiers") {
                 PresburgerTools.elimQuantifiersWithPreds(quantifiedSolution)
               }
+              
             println("Dequantified solution: " + eliminatedSolution)
             image += eliminatedSolution
             !edgesToFlowConstraint(selectedEdges)
+  */
+
+            image += solver.asConjunction(elimSol)
+            ~elimSol
           }
         }
 
         println("Blocking clause:" + blockedClause)
         solver.addAssertion(blockedClause)
-
       }
 
+      solver.shutDown
+      qeSolver.shutDown
+
       // FIXME: where does the register variables come into this?
-      disjFor(image)
+
+      val registerMap : Map[ConstantTerm, Term] =
+        registerVar.map { case (IConstant(c), IConstant(d)) => d -> c }.toMap
+
+      ConstantSubst(registerMap, order)(disjFor(image))
     }
 
   def parikhImageOld: Formula =
