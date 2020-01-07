@@ -501,8 +501,19 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
     val newImage = parikhImageNew
     println("new image: " + newImage)
 
-//    val oldImage = parikhImageOld
-//    println("old image: " + oldImage)
+    val oldImage = parikhImageOld
+    println("old image: " + oldImage)
+
+    SimpleAPI.withProver { p =>
+      import p._
+      registers foreach {
+        case IConstant(c) => addConstantRaw(c)
+      }
+      implicit val o = order
+      addConclusion(Conjunction.conj(newImage, o) <=>
+                      Conjunction.conj(oldImage, o))
+      assert(??? == SimpleAPI.ProverStatus.Valid)
+    }
 
     // FIXME generate old and new and solve not(old <=> new), if SAT we have a bug
     newImage
