@@ -497,7 +497,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
   override def parikhImage: Formula = {
     println("==========================================")
-    
+
     val newImage = parikhImageNew
     println("new image: " + newImage)
 
@@ -514,8 +514,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
                       Conjunction.conj(oldImage, o))
       assert(??? == SimpleAPI.ProverStatus.Valid)
     }
-
-    // FIXME generate old and new and solve not(old <=> new), if SAT we have a bug
     newImage
   }
 
@@ -524,15 +522,11 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   // FIXME we might want to pre-compute components and use that for
   // optimisations along the way.
   private def connectiveTheory(
+      state2Index: Map[State, Int],
       solution: Set[FromLabelTo],
       finalState: State
   ): Option[Map[FromLabelTo, Set[FromLabelTo]]] =
     Exploration.measure("parikhImage::connectiveTheory") {
-
-      // FIXME these should NOT be recomputed
-      val stateSeq = states.toIndexedSeq
-      val state2Index = stateSeq.iterator.zipWithIndex.toMap
-
       // This is the graph constructed by the solution:
       val solutionNext = solution
         .map { case (from, _, to) => (state2Index(from), state2Index(to)) }
@@ -873,7 +867,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
           case (from, _, to) => (state2Index(from), state2Index(to))
         })
 
-        val blockedClause = connectiveTheory(selectedEdges, finalState) match {
+        val blockedClause = connectiveTheory(state2Index, selectedEdges, finalState) match {
           case Some(implications) => {
             println("Disconnected")
             implicationsToBlockingClause(implications)
