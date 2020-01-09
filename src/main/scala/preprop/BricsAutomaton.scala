@@ -561,19 +561,15 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
         val stateIdxUnseen = statesInPath.to[collection.mutable.Set]
 
-        def markSeen(state: State): Stream[State] = {
-          if (state == finalState) {
-            Stream()
-          } else {
-            solutionNext(state)
-              .filter(stateIdxUnseen contains _)
-              .map { s =>
-                stateIdxUnseen(s) = false
-                s
-              }
-              .toStream
-          }
-        }
+        def markSeen(state: State) =
+          solutionNext
+            .getOrElse(state, List())
+            .filter(stateIdxUnseen contains _)
+            .map { s =>
+              stateIdxUnseen -= s
+              s
+            }
+            .toStream
 
         stateIdxUnseen(initialState) = false
         bfs(Stream(initialState), markSeen)
