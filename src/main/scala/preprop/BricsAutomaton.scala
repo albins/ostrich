@@ -597,6 +597,9 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
           // FIXME: these cycles might be connected to each other in the big
           // graph and form a bigger cycle, which means they should be part of
           // the global min-cut analysis, or maybe we don't care?
+          // - solving the general MAXIMUM cycle problem is NP-hard, but a nice
+          // compromise might be to let bigger cycles subsume self-loops
+
           // FIXME: this is reproduced code
           def collectCycle(state: Int): Stream[Int] = {
             solutionNext(state)
@@ -627,6 +630,9 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
           .flatMap(s => transitionsToState.get(s))
           .flatten
           .toSet
+
+        // TODO generate a new graph with all the nodes in cycle merged
+        // TODO compute the min-cut of this graph (that's the new causes)
 
         val causes = solution intersect transitionsIn
 
@@ -773,16 +779,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             .toSet
         }
 
-      def edgesToConjunction(selectedEdges: Set[FromLabelTo]): Conjunction = {
-        conj(
-          transitionVar.keys.zipWithIndex
-            .map {
-              case (t, i) =>
-                if (selectedEdges contains t) v(i) > 0 else v(i) === 0
-            }
-        )
-      }
-
       def edgesToConjunctionI(selectedEdges: Set[FromLabelTo]): IFormula = {
         import IExpression._
         and(
@@ -792,17 +788,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
                 if (selectedEdges contains t) (c > 0) else (c === 0)
             }
         )
-      }
-
-      def edgesToFlowConstraint(
-          selectedEdges: Set[FromLabelTo]
-      ): ap.parser.IFormula = {
-
-        transitionVar
-          .map {
-            case (t, y) => if (selectedEdges contains t) y > 0 else y === 0
-          }
-          .reduce(_ &&& _)
       }
 
       def implicationsToBlockingClause(
@@ -854,25 +839,19 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
       // FIXME make this a stream-generating method that streams out generalised
       // solutions, and ditch the arraybuffer
-      var previousSolution: Option[Any] = None
 
       while (solver.??? == SimpleAPI.ProverStatus.Sat) {
         val flowSolution = solver.partialModel
         val selectedEdges = selectEdgesFrom(flowSolution)
-        previousSolution map (
-            x => assert(x != selectedEdges, s"Generated ${flowSolution} twice")
-        )
-        previousSolution = Some(selectedEdges)
         println("selected edges: " + selectedEdges.map {
           case (from, _, to) => (state2Index(from), state2Index(to))
         })
 
         val blockedClause = connectiveTheory(state2Index, selectedEdges, finalState) match {
           case Some(implications) => {
-            println("Disconnected")
             implicationsToBlockingClause(implications)
           }
-          
+
           case None => {
 
             val matrix =
@@ -882,24 +861,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
             val elimSol =
               qeSolver.projectEx(matrix, registerVar.values)
-
-/*
-            val quantifiedSolution =
-              exists(
-                transitionVar.size,
-                // FIXME add registers!
-                edgesToConjunction(selectedEdges)
-              )
-
-            val eliminatedSolution =
-              Exploration.measure("parikhImage::eliminateQuantifiers") {
-                PresburgerTools.elimQuantifiersWithPreds(quantifiedSolution)
-              }
-              
-            println("Dequantified solution: " + eliminatedSolution)
-            image += eliminatedSolution
-            !edgesToFlowConstraint(selectedEdges)
-  */
 
             image += solver.asConjunction(elimSol)
             ~elimSol
@@ -912,8 +873,6 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
       solver.shutDown
       qeSolver.shutDown
-
-      // FIXME: where does the register variables come into this?
 
       val registerMap : Map[ConstantTerm, Term] =
         registerVar.map { case (IConstant(c), IConstant(d)) => d -> c }.toMap
