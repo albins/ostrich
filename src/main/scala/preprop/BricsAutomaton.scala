@@ -522,14 +522,13 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   // FIXME we might want to pre-compute components and use that for
   // optimisations along the way.
   private def connectiveTheory(
-      state2Index: Map[State, Int],
       solution: Set[FromLabelTo],
       finalState: State
   ): Option[Map[FromLabelTo, Set[FromLabelTo]]] =
     Exploration.measure("parikhImage::connectiveTheory") {
       // This is the graph constructed by the solution:
       val solutionNext = solution
-        .map { case (from, _, to) => (state2Index(from), state2Index(to)) }
+        .map { case (from, _, to) => (from, to) }
         .toList
         .groupBy(_._1)
         .mapValues(nexts => nexts.unzip._2)
@@ -537,7 +536,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
       val transitionsToState = transitions
         .map { t =>
-          (state2Index(t._3), t)
+          (t._3, t)
         }
         .toList
         .groupBy(_._1)
@@ -548,23 +547,22 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         .map { case (from, _, to) => List(from, to) }
         .flatten
         .toSet
-        .map(state2Index)
 
       // FIXME: visitor mixes getting nodes and doing things with nodes
       @tailrec
-      def bfs(queue: Stream[Int], visitor: Int => Stream[Int]): Unit = {
+      def bfs(queue: Stream[State], visitor: State => Stream[State]): Unit = {
         if (!queue.isEmpty)
           bfs(queue.tail append visitor(queue.head), visitor)
       }
 
       // Perform a BFS starting in startNode, returning a set of unreached
       // states
-      def unreachableFrom(startNode: Int): MBitSet = {
+      def unreachableFrom(startNode: State) = {
 
-        val stateIdxUnseen = MBitSet(statesInPath.toSeq: _*)
+        val stateIdxUnseen = statesInPath.to[collection.mutable.Set]
 
-        def markSeen(state: Int): Stream[Int] = {
-          if (state == state2Index(finalState)) {
+        def markSeen(state: State): Stream[State] = {
+          if (state == finalState) {
             Stream()
           } else {
             solutionNext(state)
@@ -577,22 +575,22 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
           }
         }
 
-        stateIdxUnseen(state2Index(initialState)) = false
-        bfs(Stream(state2Index(initialState)), markSeen)
+        stateIdxUnseen(initialState) = false
+        bfs(Stream(initialState), markSeen)
 
-        stateIdxUnseen
+        stateIdxUnseen.to[Set]
       }
 
       // Compute a set of cycles from a set of possible starting nodes. We know
       // it's safe to start anywhere because they all participate in a cycle of
       // 1 - all nodes, so we always get the full cycle wherever we start.
-      def cyclesStartingIn(nodes: Seq[Int]) = {
+      def cyclesStartingIn(nodes: Seq[State]) = {
 
-        val stateIdxUnseen = MBitSet(nodes: _*)
-        val cycles: ArrayBuffer[Set[Int]] = ArrayBuffer()
+        val stateIdxUnseen = nodes.to[collection.mutable.Set]
+        val cycles: ArrayBuffer[Set[State]] = ArrayBuffer()
 
         while (!stateIdxUnseen.isEmpty) {
-          val inCycle: ArrayBuffer[Int] = ArrayBuffer()
+          val inCycle: ArrayBuffer[State] = ArrayBuffer()
 
           // FIXME: these cycles might be connected to each other in the big
           // graph and form a bigger cycle, which means they should be part of
@@ -601,11 +599,11 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
           // compromise might be to let bigger cycles subsume self-loops
 
           // FIXME: this is reproduced code
-          def collectCycle(state: Int): Stream[Int] = {
+          def collectCycle(state: State): Stream[State] = {
             solutionNext(state)
               .filter(stateIdxUnseen contains _)
               .map { s =>
-                stateIdxUnseen(s) = false
+                stateIdxUnseen -= s
                 inCycle += s
                 s
               }
@@ -625,7 +623,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       // Compute the smallest set of transitions required to sever the cycle
       // from the rest of the graph
       // FIXME: this is mocked: it currently returns all transitions into the cycle
-      def causeResolution(cycle: Set[Int]) = {
+      def causeResolution(cycle: Set[State]) = {
         val transitionsIn = cycle
           .flatMap(s => transitionsToState.get(s))
           .flatten
@@ -642,7 +640,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       }
 
       // Compute a set of possibly unreached states
-      val unreached = unreachableFrom(state2Index(initialState))
+      val unreached = unreachableFrom(initialState)
 
       if (unreached.isEmpty) return None
 
@@ -847,7 +845,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
           case (from, _, to) => (state2Index(from), state2Index(to))
         })
 
-        val blockedClause = connectiveTheory(state2Index, selectedEdges, finalState) match {
+        val blockedClause = connectiveTheory(selectedEdges, finalState) match {
           case Some(implications) => {
             implicationsToBlockingClause(implications)
           }
