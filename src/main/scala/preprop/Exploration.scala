@@ -440,6 +440,17 @@ abstract class Exploration(
     res
   }
 
+  private def getProductParikhImage(auts : Seq[Automaton]) : Formula = {
+    val bAuts =
+      for (aut <- auts)
+      yield AtomicStateAutomatonAdapter.intern(aut)
+                                       .asInstanceOf[BricsAutomaton]
+    BricsAutomaton.product(bAuts).parikhImage
+  }
+
+  private def getProductParikhImage(tcs : Seq[TermConstraint]) : Formula =
+    getProductParikhImage(for (TermConstraint(_, aut) <- tcs) yield aut)
+
   // get parikhImage of each bricsAutomaton in auts
   private def getAutsParikhImage(auts: Seq[BricsAutomaton]): List[Formula] = {
     (auts.map { aut =>
@@ -667,15 +678,77 @@ abstract class Exploration(
         def addConstsFromI(f : IFormula) : Unit =
           addConsts(SymbolCollector constantsSorted f)
 
+        def addConstsFromC(t : TermConstraint) : Unit =
+          t.aut match {
+            case aut : BricsAutomaton =>
+              for (t <- aut.registers)
+                addConsts(SymbolCollector constantsSorted t)
+            case _ =>
+              // nothing
+          }
+
         // println("output parikh formula")
         // parikhIntFormula.foreach{case formula => {SMTLineariser((formula)); println()}}
 
         // the input int constraints
         addAssertion(IntConstraintStore())
 
-        // the derived int constraints, e.g from substr and lenth relation
+        // the derived int constraints, e.g from substr and length relation
         addAssertion(StoreLC())
-        println("product all atom automaton")
+
+        // the preop int constraints
+        for (i <- 0 to LCStack.size - 1) {
+          val preOpIntFormula = LCStack(i)
+          preOpIntFormula().foreach {
+            a => addConstsFromI(a)
+          }
+          preOpIntFormula().foreach(addAssertion(_))
+        }
+
+        println("handle automata with registers")
+
+        for (t <- tmpBuffer)
+          addConstsFromC(t)
+        val constraintsPerTerm =
+          tmpBuffer.groupBy { case TermConstraint(aTerm, _) => aTerm }
+
+        // TODO: make sure that automata are handled in deterministic order
+        var windowSize = 0
+        var cont = true
+        var result = ???
+        while (cont && result == ProverStatus.Sat) {
+          println(" ... still " + result)
+
+          cont = false
+          windowSize = windowSize + 1
+
+          println("window size: " + windowSize)
+
+          for ((_, constraints) <- constraintsPerTerm)
+            if (result == ProverStatus.Sat &&
+                constraints.size >= windowSize) {
+              cont = true
+              for (constraintSubset <- constraints sliding windowSize) {
+                val f = getProductParikhImage(constraintSubset)
+                if (!f.isTrue) {
+                  addAssertion(order sort f)
+                  result = ???
+                }
+              }
+            }
+        }
+
+        println("final result: " + result)
+
+        result match {
+          case ProverStatus.Sat => throw FoundModel(model.toMap)
+          // return List() to stand for Unknow
+          case ProverStatus.Unsat => return List()
+        }
+
+/*
+        println(constraintsPerTerm)
+
         val finalCons = getProductAuts(tmpBuffer)
         println("begin to compute parikh image")
         val parikhIntFormula = getAutsParikhImage(finalCons)
@@ -688,21 +761,8 @@ abstract class Exploration(
 
         println("parikh image compute finished")
 
-        // the preop int constraints
-        for (i <- 0 to LCStack.size - 1) {
-          val preOpIntFormula = LCStack(i)
-          preOpIntFormula().foreach {
-            a => addConstsFromI(a)
-          }
-          preOpIntFormula().foreach(addAssertion(_))
-        }
-
         println(???)
-        ??? match {
-          case ProverStatus.Sat => throw FoundModel(model.toMap)
-          // return List() to stand for Unknow
-          case ProverStatus.Unsat => return List()
-        }
+ */
 
       }
     }

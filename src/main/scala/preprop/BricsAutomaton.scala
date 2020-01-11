@@ -461,7 +461,11 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
   override val LabelOps = BricsTLabelOps
 
-  override def toString: String = underlying.toString
+  override def toString: String =
+    (registers match {
+      case Seq() => ""
+      case regs => "<" + (regs mkString ", ") + "> "
+     }) + ", " + underlying.toString
 
   // hu zi add ---------------------------------------------------------------------------------------------------------------
 //  val registers : ArrayBuffer[ITerm]= ArrayBuffer()  // or maybe ArrayBuffer[ConstantTerm]
@@ -501,6 +505,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
     val newImage = parikhImageNew
     println("new image: " + newImage)
 
+/*
     val oldImage = parikhImageOld
     println("old image: " + oldImage)
 
@@ -515,6 +520,8 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       assert(??? == SimpleAPI.ProverStatus.Valid)
     }
     newImage
+ */
+newImage
   }
 
   // Return: either None (solution is connected), or Some(blocking clause)
@@ -631,7 +638,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         val causes = solution intersect transitionsIn
 
         // FIXME we can have multiple causes?
-        assert(causes.size == 1)
+        //assert(causes.size == 1)
         (causes.head, transitionsIn -- causes)
       }
 
