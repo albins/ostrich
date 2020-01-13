@@ -843,13 +843,20 @@ newImage
       // FIXME make this a stream-generating method that streams out generalised
       // solutions, and ditch the arraybuffer
 
+      var previousSolution: Option[Any] = None
+
       while (solver.??? == SimpleAPI.ProverStatus.Sat) {
         val flowSolution = solver.partialModel
         val selectedEdges = selectEdgesFrom(flowSolution)
+        previousSolution map (
+            x => assert(x != selectedEdges, s"Generated ${flowSolution} twice")
+        )
+        previousSolution = Some(selectedEdges)
         println("selected edges: " + selectedEdges.map(fmtTransition(_)))
 
         val blockedClause = connectiveTheory(selectedEdges, finalState) match {
           case Some(implications) => {
+            println("Disconnected!")
             implicationsToBlockingClause(implications)
           }
 
