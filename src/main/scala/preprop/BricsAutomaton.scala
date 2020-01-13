@@ -474,6 +474,17 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   val etaMap = new MHashMap[(State, TLabel, State), List[Int]]
   addEtaMapsDefault
 
+  // FIXME: we will not always need these
+  private val stateSeq = states.toIndexedSeq
+  private lazy val state2Index = stateSeq.iterator.zipWithIndex.toMap
+
+
+  private def fmtTransition(t: FromLabelTo) = {
+    val (from, (labelMin, labelMax), to) = t
+
+    s"(${state2Index(from)} -[${labelMin toInt}, ${labelMax toInt}]-> ${state2Index(to)})"
+  }
+
   /**
     * get parikh iamge of BricsAutomaton
     */
@@ -623,10 +634,11 @@ newImage
         cycles.toSet
       }
 
-      // Compute the smallest set of transitions required to sever the cycle
-      // from the rest of the graph
+      // Compute the smallest set of pairs of transition in cycle => one of
+      // these transitions must be included for connectivity
+
       // FIXME: this is mocked: it currently returns all transitions into the cycle
-      def causeResolution(cycle: Set[State]) = {
+      def causeResolution(cycle: Set[State]): Seq[(FromLabelTo, Set[FromLabelTo])] = {
         val transitionsIn = cycle
           .flatMap(s => transitionsToState.get(s))
           .flatten
@@ -634,12 +646,12 @@ newImage
 
         // TODO generate a new graph with all the nodes in cycle merged
         // TODO compute the min-cut of this graph (that's the new causes)
-
         val causes = solution intersect transitionsIn
+        //assert(causes.size == 1, "invalid causes: " + (causes.map(fmtTransition(_)).mkString(", ")))
 
-        // FIXME we can have multiple causes?
-        //assert(causes.size == 1)
-        (causes.head, transitionsIn -- causes)
+        // FIXME: is this really the best way?
+        causes.map(cause => (cause, transitionsIn - cause)).toVector
+        //(causes.head, transitionsIn - causes.head)
       }
 
       // Compute a set of possibly unreached states
@@ -652,7 +664,7 @@ newImage
       // node in cycle => set of transitions which might cause it to be included
       // FIXME: map the transition into the cycle
       val implications = cycles
-        .map(causeResolution(_))
+        .flatMap(causeResolution(_))
         .toMap
 
       Some(implications)
@@ -680,9 +692,6 @@ newImage
                       blockingConstraint : Formula): Formula =
     Exploration.measure("parikhImagePathToEnd") {
       import TerForConvenience._
-
-      val stateSeq = states.toIndexedSeq
-      val state2Index = stateSeq.iterator.zipWithIndex.toMap
 
       // FIXME use withSolver or whatever it's called
       val solver = SimpleAPI.spawnWithLog // WithAssertions
@@ -795,14 +804,11 @@ newImage
           implications: Map[FromLabelTo, Set[FromLabelTo]]
       ): ap.parser.IFormula = {
 
-        def fmt(t: FromLabelTo) =
-          s"(${state2Index(t._1)}, ${state2Index(t._3)})"
-
         for ((included, correction) <- implications) {
           println(
-            fmt(included) +
+            fmtTransition(included) +
               " ==> " +
-              "(" + correction.map(fmt(_)).mkString(" || ") + ")"
+              "(" + correction.map(fmtTransition(_)).mkString(" || ") + ")"
           )
         }
 
@@ -826,10 +832,6 @@ newImage
       // These are the clauses of the Parikh Image
       val image: ArrayBuffer[Formula] = ArrayBuffer()
 
-//      for ((from, _, to) <- transitions) {
-//        println(state2Index(from) + " -> " + state2Index(to))
-//      }
-
       // start a second solver for QE
       val qeSolver = SimpleAPI.spawn // WithAssertions
 
@@ -844,9 +846,7 @@ newImage
       while (solver.??? == SimpleAPI.ProverStatus.Sat) {
         val flowSolution = solver.partialModel
         val selectedEdges = selectEdgesFrom(flowSolution)
-        println("selected edges: " + selectedEdges.map {
-          case (from, _, to) => (state2Index(from), state2Index(to))
-        })
+        println("selected edges: " + selectedEdges.map(fmtTransition(_)))
 
         val blockedClause = connectiveTheory(selectedEdges, finalState) match {
           case Some(implications) => {
@@ -889,9 +889,6 @@ newImage
       implicit val order = TermOrder.EMPTY.extend(constantSeq)
 
       // val a = registers.map(InputAbsy2Internal(_,TermOrder.EMPTY)).toSeq
-
-      val stateSeq = states.toIndexedSeq
-      val state2Index = stateSeq.iterator.zipWithIndex.toMap
 
       lazy val preStates = {
         val preStates =
