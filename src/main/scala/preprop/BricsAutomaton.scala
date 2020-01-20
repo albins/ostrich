@@ -117,7 +117,7 @@ object BricsAutomaton {
     new BricsAutomaton(toBAutomaton(auts.reduceLeft(_ & _)))
   }
 
-  val MaxSimultaneousProduct = 5
+  val MaxSimultaneousProduct = 2
 
   def product(auts: Seq[BricsAutomaton]): BricsAutomaton = {
     if (auts.size == 0)
@@ -138,6 +138,8 @@ object BricsAutomaton {
   }
 
   def fullProduct(auts: Seq[BricsAutomaton]): BricsAutomaton = {
+    println("Computing product of automata with sizes " + (auts map (_.states.size)).mkString(", "))
+
     val head = auts.head
     val builder = head.getBuilder
 
@@ -230,10 +232,15 @@ object BricsAutomaton {
       )
     }
 
+    builder.removeBackwardsUnreachableStates
+//    builder.mergeStates
+
     val res = builder.getAutomaton
     res.addEtaMaps(builder.etaMap)
     res.setRegisters(registers)
-// have not removeDeadTranstions
+    println("Size of resulting automaton: " + res.states.size)
+//    println(res)
+//    println(res.etaMap)
     res
   }
 }
@@ -511,15 +518,15 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   type FromLabelTo = (State, TLabel, State)
 
   override def parikhImage: Formula = {
-    println("==========================================")
+    println("Computing Parikh image ...")
 
-    val newImage = parikhImageNew
-    println("new image: " + newImage)
+    val image = parikhImageNew
+//    println("new image: " + newImage)
+
+//    val image = parikhImageOld
+//    println("old image: " + oldImage)
 
 /*
-    val oldImage = parikhImageOld
-    println("old image: " + oldImage)
-
     SimpleAPI.withProver { p =>
       import p._
       registers foreach {
@@ -532,7 +539,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
     }
     newImage
  */
-newImage
+    image
   }
 
   // Return: either None (solution is connected), or Some(blocking clause)
@@ -1152,8 +1159,6 @@ newImage
     res
   }
 
-  def removeDeadTranstions(): Unit = {}
-
   // print this aut
 //  def printAut() : Unit = {
 //    val out = new PrintWriter(new FileWriter("tmp.txt", true))
@@ -1376,6 +1381,100 @@ class BricsAutomatonBuilder
     q.setAccept(isAccepting)
 
   def isAccept(q: BricsAutomaton#State): Boolean = q.isAccept
+
+  /**
+   * Remove states and transitions from which no accepting states can be reached
+   */
+  def removeBackwardsUnreachableStates : Unit = {
+    val reachable = new MHashSet[BricsAutomaton#State]
+    val allStates = states
+
+    for (s <- allStates)
+      if (s.isAccept)
+        reachable += s
+
+    var changed = true
+    while (changed) {
+      changed = false
+      for (s <- allStates)
+        if (!(reachable contains s))
+          for ((next, _) <- outgoingTransitions(s))
+            if (reachable contains next) {
+              reachable += s
+              changed = true
+            }
+    }
+
+    // cut transitions to all unreachable states
+    for (s <- allStates)
+      if (reachable contains s) {
+        val transitions = s.getTransitions
+
+        for (t <- transitions.toList)
+          if (!(reachable contains t.getDest))
+            transitions remove t
+      }
+  }
+
+  /**
+   * Heuristically minimise the automaton by merging states that have the same
+   * outgoing transitions
+   * 
+   * Unfinished
+   */
+  def mergeStates : Unit = {
+    val allStates = states
+    println(allStates exists {
+      s1 => allStates exists {
+        s2 =>
+          s1 != s2 &&
+          s1.isAccept == s2.isAccept &&
+          sameTransitions(s1, s2)
+      }
+    })
+  }
+
+  // TODO: add registers
+  private def sameTransitions(x : BricsAutomaton#State,
+                              y : BricsAutomaton#State) : Boolean = {
+    val xTrans = x.getTransitions
+    val yTrans = y.getTransitions
+    (xTrans forall {
+       xt => yTrans exists { yt => xt.getDest == yt.getDest &&
+                                   xt.getMin == yt.getMin &&
+                                   xt.getMax == yt.getMax }
+     }) &&
+    (yTrans forall {
+       yt => xTrans exists { xt => xt.getDest == yt.getDest &&
+                                   xt.getMin == yt.getMin &&
+                                   xt.getMax == yt.getMax }
+     })
+  }
+
+  /**
+    * Iterate over automaton states, return in deterministic order
+    */
+  private def states: Iterable[BricsAutomaton#State] = {
+    // do this the hard way to give a deterministic ordering
+    val worklist = new MStack[BricsAutomaton#State]
+    val seenstates = new MLinkedHashSet[BricsAutomaton#State]
+
+    worklist.push(initialState)
+    seenstates.add(initialState)
+
+    while (!worklist.isEmpty) {
+      val s = worklist.pop
+
+      for ((to, _) <- outgoingTransitions(s)) {
+        if (!seenstates.contains(to)) {
+          worklist.push(to)
+          seenstates += to
+        }
+      }
+    }
+
+    seenstates
+  }
 
   /**
     * Returns built automaton.  Can only be used once after which the

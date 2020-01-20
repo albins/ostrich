@@ -37,7 +37,8 @@ import scala.collection.mutable.{
   LinkedHashSet,
   BitSet => MBitSet,
   HashMap => MHashMap,
-  HashSet => MHashSet
+  HashSet => MHashSet,
+  PriorityQueue
 }
 import scala.language.postfixOps
 import scala.sys.process._
@@ -440,6 +441,7 @@ abstract class Exploration(
     res
   }
 
+/*
   private def getProductParikhImage(auts : Seq[Automaton]) : Formula = {
     val bAuts =
       for (aut <- auts)
@@ -457,6 +459,7 @@ abstract class Exploration(
       aut.parikhImage
     }).toList
   }
+ */
 
   private def getNotDeclare(seq: Seq[ArrayBuffer[BricsAutomaton]]) = {
     val res = new MHashSet[ConstantTerm]()
@@ -707,35 +710,81 @@ abstract class Exploration(
 
         println("handle automata with registers")
 
+        // TODO: make sure that automata are handled in deterministic order
+
         for (t <- tmpBuffer)
           addConstsFromC(t)
         val constraintsPerTerm =
           tmpBuffer.groupBy { case TermConstraint(aTerm, _) => aTerm }
 
-        // TODO: make sure that automata are handled in deterministic order
-        var windowSize = 0
-        var cont = true
+        println("Considered terms:")
+        for ((t, auts) <- constraintsPerTerm) {
+          println("   " + t)
+          for (TermConstraint(_, aut) <- auts) {
+            val ba = AtomicStateAutomatonAdapter.intern(aut)
+                                                .asInstanceOf[BricsAutomaton]
+            println("      <" +
+                    (ba.registers mkString ", ") + ">, \tsize " +
+                    ba.states.size)
+          }
+        }
+
+        implicit val bricsAutOrdering =
+          new Ordering[BricsAutomaton] {
+            def compare(x : BricsAutomaton, y : BricsAutomaton) =
+              y.states.size - x.states.size
+          }
+
+        implicit val bricsAutQueueOrdering =
+          new Ordering[PriorityQueue[BricsAutomaton]] {
+            def compare(x : PriorityQueue[BricsAutomaton],
+                        y : PriorityQueue[BricsAutomaton]) =
+              bricsAutOrdering.compare(x.head, y.head)
+          }
+
+        val autQueuesPerTerm =
+          for ((t, auts) <- constraintsPerTerm) yield {
+            val bAuts =
+              for (TermConstraint(_, aut) <- auts)
+              yield AtomicStateAutomatonAdapter.intern(aut)
+                                               .asInstanceOf[BricsAutomaton]
+            val (withoutRegs, withRegs) =
+              bAuts partition (_.registers.isEmpty)
+            val queue =
+              new PriorityQueue[BricsAutomaton]
+
+            if (!withoutRegs.isEmpty)
+              queue += BricsAutomaton productSpecially withoutRegs
+            queue ++= withRegs
+
+            t -> queue
+          }
+
+        for ((_, autQueue) <- autQueuesPerTerm)
+          for (aut <- autQueue)
+            addAssertion(order sort aut.parikhImage)
+
+        val globalQueue = new PriorityQueue[PriorityQueue[BricsAutomaton]]
+        for ((_, autQueue) <- autQueuesPerTerm)
+          if (autQueue.size > 1)
+            globalQueue += autQueue
+
         var result = ???
-        while (cont && result == ProverStatus.Sat) {
+        while (!globalQueue.isEmpty && result == ProverStatus.Sat) {
           println(" ... still " + result)
 
-          cont = false
-          windowSize = windowSize + 1
+          val nextQueue = globalQueue.dequeue
+          val aut1 = nextQueue.dequeue
+          val aut2 = nextQueue.dequeue
 
-          println("window size: " + windowSize)
+          val productAut = BricsAutomaton.product(List(aut1, aut2))
+          nextQueue += productAut
 
-          for ((_, constraints) <- constraintsPerTerm)
-            if (result == ProverStatus.Sat &&
-                constraints.size >= windowSize) {
-              cont = true
-              for (constraintSubset <- constraints sliding windowSize) {
-                val f = getProductParikhImage(constraintSubset)
-                if (!f.isTrue) {
-                  addAssertion(order sort f)
-                  result = ???
-                }
-              }
-            }
+          if (nextQueue.size > 1)
+            globalQueue += nextQueue
+
+          addAssertion(order sort productAut.parikhImage)
+          result = ???
         }
 
         println("final result: " + result)
