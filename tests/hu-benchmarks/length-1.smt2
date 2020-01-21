@@ -1,7 +1,7 @@
-;sat
+;unsat
 
 (set-logic QF_S)
-(set-logic QF_LIA)
+
 (declare-fun x () String)
 (declare-fun y () String)
 (declare-fun z () String)

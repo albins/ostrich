@@ -9,6 +9,7 @@ lazy val commonSettings = Seq(
   ),
   fork in run := true,
   cancelable in Global := true,
+  parallelExecution in Test := false,
   scalacOptions ++= Seq(
     "-deprecation",
     //"-Xfatal-warnings",

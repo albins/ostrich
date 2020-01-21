@@ -48,12 +48,15 @@ import scala.collection.mutable.{
   MultiMap => MMultiMap,
   Set => MSet,
   Stack => MStack,
-  TreeSet => MTreeSet
+  TreeSet => MTreeSet,
+  BitSet
 }
 import scala.collection.immutable.List
 import java.util.{List => JList}
 
 import scala.collection.JavaConverters._
+
+import scala.language.postfixOps
 
 object BricsAutomaton {
   private def toBAutomaton(aut: Automaton): BAutomaton = aut match {
@@ -232,16 +235,16 @@ object BricsAutomaton {
       )
     }
 
-    builder.removeBackwardsUnreachableStates
-//    builder.mergeStates
+    builder.removeBackwardsUnreachableStates()
 
     val res = builder.getAutomaton
     res.addEtaMaps(builder.etaMap)
     res.setRegisters(registers)
-    println("Size of resulting automaton: " + res.states.size)
-//    println(res)
-//    println(res.etaMap)
-    res
+
+    val res2 = res.minimize
+    println("Size of resulting automaton: " + res2.states.size)
+
+    res2
   }
 }
 
@@ -468,11 +471,40 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
   override val LabelOps = BricsTLabelOps
 
-  override def toString: String =
-    (registers match {
-      case Seq() => ""
-      case regs => "<" + (regs mkString ", ") + "> "
-     }) + ", " + underlying.toString
+  override def toString: String = ap.DialogUtil.asString {
+    println("/-----------------------------------------------")
+    println("|                BricsAutomaton")
+
+    registers match {
+      case Seq() => 
+      case regs => println("| Registers:      " + (regs mkString ", ") + "")
+    }
+
+    val stateAr = states.toArray
+    val stateIndex = stateAr.iterator.zipWithIndex.toMap
+
+    println("| Initial state:  " + stateIndex(initialState))
+    println("| Final state(s): " +
+            (for ((s, n) <- stateAr.iterator.zipWithIndex; if isAccept(s))
+             yield n).mkString(", "))
+
+    for ((s, n) <- stateAr.iterator.zipWithIndex) {
+      println("| State " + n)
+      for ((t, l) <- outgoingTransitions(s)) {
+        print("|   " + l + " -> " + stateIndex(t))
+        if (!registers.isEmpty) {
+          var prefix = "\t("
+          for ((r, o) <- registers zip etaMap((s, l, t))) {
+            print(prefix + r + " += " + o)
+            prefix = "; "
+          }
+          print(")")
+        }
+        println
+      }
+    }
+    println("\\-----------------------------------------------")
+  }
 
   // hu zi add ---------------------------------------------------------------------------------------------------------------
 //  val registers : ArrayBuffer[ITerm]= ArrayBuffer()  // or maybe ArrayBuffer[ConstantTerm]
@@ -520,10 +552,10 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   override def parikhImage: Formula = {
     println("Computing Parikh image ...")
 
-    val image = parikhImageNew
+//    val image = parikhImageNew
 //    println("new image: " + newImage)
 
-//    val image = parikhImageOld
+    val image = parikhImageOld
 //    println("old image: " + oldImage)
 
 /*
@@ -1289,6 +1321,106 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       case str  => Some(for (c <- str) yield c.toInt)
     }
 
+  /**
+   * Simplify this automaton. Currently, this might not necessarily result
+   * in an automaton with a minimal number of states, however.
+   */
+  def minimize : BricsAutomaton = {
+    val stateAr    = states.toArray
+    val N          = stateAr.size
+
+    val labelSet   = for (s <- stateAr) yield {
+      (for ((t, l) <- outgoingTransitions(s))
+       yield (l, etaMap((s, l, t)))).toSet
+    }
+    val stateIndex = stateAr.iterator.zipWithIndex.toMap
+
+    // Initial relation between states
+    val eqvStates = Array.tabulate(N) { n1 => {
+      val s1 = stateAr(n1)
+      BitSet((for (n2 <- 0 until n1;
+                   s2 = stateAr(n2);
+                   if isAccept(s1) == isAccept(s2);
+                   if labelSet(n1) == labelSet(n2)) yield n2) : _*)
+    }}
+
+    if (eqvStates forall (_.isEmpty))
+      return this
+
+    def areEqv(n1 : Int, n2 : Int) =
+      if (n1 < n2)
+        eqvStates(n2)(n1)
+      else if (n2 < n1)
+        eqvStates(n1)(n2)
+      else
+        true
+
+    def transSubsumes(n1 : Int, n2 : Int) = {
+      val s1 = stateAr(n1)
+      val s2 = stateAr(n2)
+      outgoingTransitions(s1) forall { case (t1, l1) => {
+        val eta1 = etaMap((s1, l1, t1))
+        val t1Ind = stateIndex(t1)
+        outgoingTransitions(s2) exists { case (t2, l2) =>
+          l1 == l2 &&
+          eta1 == etaMap((s2, l2, t2)) &&
+          areEqv(t1Ind, stateIndex(t2))
+        }
+      }}
+    }
+
+    // fixed-point loop to refine the relation between states
+    var cont = true
+    while (cont) {
+      cont = false
+      for (n1 <- 0 until N) {
+        val oldEqv = eqvStates(n1)
+        if (!oldEqv.isEmpty) {
+          val newEqv =
+            for (n2 <- oldEqv;
+                 if transSubsumes(n1, n2) && transSubsumes(n2, n1))
+            yield n2
+          if (oldEqv != newEqv) {
+            cont = true
+            eqvStates(n1) = newEqv
+          }
+        }
+      }
+    }
+
+    if (eqvStates forall (_.isEmpty))
+      return this
+
+    // construct a new, reduced automaton
+    val builder = getBuilder
+
+    val newStates =
+      (for (n <- 0 until N; if eqvStates(n).isEmpty)
+       yield (n -> builder.getNewState)).toMap
+
+    val old2New =
+      (for (n1 <- 0 until N) yield {
+         val s1 = stateAr(n1)
+         val eqv = eqvStates(n1)
+         s1 -> newStates(if (eqv.isEmpty) n1 else eqv.min)
+       }).toMap
+           
+    builder setInitialState old2New(initialState)
+
+    for ((s, n) <- stateAr.iterator.zipWithIndex;
+         if eqvStates(n).isEmpty;
+         (t, l) <- outgoingTransitions(s))
+      builder.addTransition(old2New(s), l, old2New(t), etaMap((s, l, t)))
+
+    for (s <- stateAr)
+      builder.setAccept(old2New(s), isAccept(s))
+
+    val res = builder.getAutomaton
+    res.addEtaMaps(builder.etaMap)
+    res setRegisters this.registers
+    res
+  }
+
   def isAccept(s: State): Boolean = s.isAccept
 
   def toDetailedString: String = underlying.toString
@@ -1383,9 +1515,10 @@ class BricsAutomatonBuilder
   def isAccept(q: BricsAutomaton#State): Boolean = q.isAccept
 
   /**
-   * Remove states and transitions from which no accepting states can be reached
+   * Remove states and transitions from which no accepting states can be
+   * reached
    */
-  def removeBackwardsUnreachableStates : Unit = {
+  def removeBackwardsUnreachableStates() : Unit = {
     val reachable = new MHashSet[BricsAutomaton#State]
     val allStates = states
 
@@ -1414,41 +1547,6 @@ class BricsAutomatonBuilder
           if (!(reachable contains t.getDest))
             transitions remove t
       }
-  }
-
-  /**
-   * Heuristically minimise the automaton by merging states that have the same
-   * outgoing transitions
-   * 
-   * Unfinished
-   */
-  def mergeStates : Unit = {
-    val allStates = states
-    println(allStates exists {
-      s1 => allStates exists {
-        s2 =>
-          s1 != s2 &&
-          s1.isAccept == s2.isAccept &&
-          sameTransitions(s1, s2)
-      }
-    })
-  }
-
-  // TODO: add registers
-  private def sameTransitions(x : BricsAutomaton#State,
-                              y : BricsAutomaton#State) : Boolean = {
-    val xTrans = x.getTransitions
-    val yTrans = y.getTransitions
-    (xTrans forall {
-       xt => yTrans exists { yt => xt.getDest == yt.getDest &&
-                                   xt.getMin == yt.getMin &&
-                                   xt.getMax == yt.getMax }
-     }) &&
-    (yTrans forall {
-       yt => xTrans exists { xt => xt.getDest == yt.getDest &&
-                                   xt.getMin == yt.getMin &&
-                                   xt.getMax == yt.getMax }
-     })
   }
 
   /**

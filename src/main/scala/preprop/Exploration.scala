@@ -787,31 +787,13 @@ abstract class Exploration(
           result = ???
         }
 
-        println("final result: " + result)
+        println("final result of Parikh test: " + result)
 
         result match {
           case ProverStatus.Sat => throw FoundModel(model.toMap)
           // return List() to stand for Unknow
           case ProverStatus.Unsat => return List()
         }
-
-/*
-        println(constraintsPerTerm)
-
-        val finalCons = getProductAuts(tmpBuffer)
-        println("begin to compute parikh image")
-        val parikhIntFormula = getAutsParikhImage(finalCons)
-        parikhIntFormula.foreach {
-          f => {
-            addConstsFrom(f)
-            addAssertion(f)
-          }
-        }
-
-        println("parikh image compute finished")
-
-        println(???)
- */
 
       }
     }

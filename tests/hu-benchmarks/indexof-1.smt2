@@ -1,5 +1,7 @@
+;unsat
+
 (set-logic QF_S)
-(set-logic QF_LIA)
+
 (declare-fun x () String)
 
 (assert(str.in.re x (str.to.re "abcabc")))
