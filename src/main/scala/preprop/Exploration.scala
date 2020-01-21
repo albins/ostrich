@@ -660,8 +660,10 @@ abstract class Exploration(
         }
       }
 
-      SimpleAPI.withProver { p =>
+      measure("parikh-consistency-check") { SimpleAPI.withProver { p =>
         import p._
+
+//        setConstructProofs(true)
 
         val o = IntConstraintStore.getOrder
         addConstantsRaw(o sort o.orderedConstants)
@@ -795,7 +797,7 @@ abstract class Exploration(
           case ProverStatus.Unsat => return List()
         }
 
-      }
+      }}
     }
     case (op, args, res) :: otherApps =>
       dfExploreCompleteOp(

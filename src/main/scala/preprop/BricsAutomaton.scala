@@ -983,7 +983,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       ////////////////////////////////////////////////////////////////////////////
 
       // disjunction of formulas
-      disjFor(
+      val rawDisjunction = disjFor(
         for (finalState <- acceptingStates)
           yield {
             val finalStateInd = state2Index(finalState)
@@ -1118,18 +1118,26 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             val rawConstraint =
               exists(prodVars.size + zVars.size, matrix)
 
-            val constraint =
+/*            val constraint =
               ap.util.Timeout.withTimeoutMillis(1000) {
                 // best-effort attempt to get a quantifier-free version of the
                 // length abstraction
                 PresburgerTools.elimQuantifiersWithPreds(rawConstraint)
               } {
                 ReduceWithConjunction(Conjunction.TRUE, order)(rawConstraint)
-              }
+              }*/
 
-            constraint
+            rawConstraint
           }
       )
+
+      if (rawDisjunction.variables.isEmpty) {
+        rawDisjunction
+      } else {
+        val maxVar =
+          (for (VariableTerm(n) <- rawDisjunction.variables) yield n).max
+        exists(maxVar + 1, rawDisjunction)
+      }
     }
 
   /**
