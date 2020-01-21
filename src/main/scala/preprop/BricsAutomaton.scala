@@ -550,12 +550,14 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   type FromLabelTo = (State, TLabel, State)
 
   override def parikhImage: Formula = {
-    println("Computing Parikh image ...")
+    print("Computing Parikh image ... ")
 
-//    val image = parikhImageNew
+    val simpAut = this.makeLabelsUniform.minimize
+
+//    val image = simpAut.parikhImageNew
 //    println("new image: " + newImage)
 
-    val image = parikhImageOld
+    val image = simpAut.parikhImageOld
 //    println("old image: " + oldImage)
 
 /*
@@ -571,6 +573,9 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
     }
     newImage
  */
+
+    println("done")
+
     image
   }
 
@@ -1311,7 +1316,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   lazy val labelEnumerator =
     new BricsTLabelEnumerator(for ((_, lbl, _) <- transitions) yield lbl)
 
-  /*
+  /**
    * Get any word accepted by this automaton, or <code>None</code>
    * if the language is empty
    */
@@ -1414,6 +1419,37 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
     for (s <- stateAr)
       builder.setAccept(old2New(s), isAccept(s))
+
+    val res = builder.getAutomaton
+    res.addEtaMaps(builder.etaMap)
+    res setRegisters this.registers
+    res
+  }
+
+  /**
+   * Eliminate labels (character ranges) from this automaton; labels
+   * for transitions with distinct eta labels will still be kept
+   * distinct as well, to avoid transitions being merged that should
+   * be kept
+   */
+  def makeLabelsUniform : BricsAutomaton = {
+    val etaIndex = new MHashMap[List[Int], Int]
+
+    val builder = getBuilder
+    val old2New =
+      (for (s <- states) yield (s -> builder.getNewState)).toMap
+
+    builder setInitialState old2New(initialState)
+
+    for (s <- states)
+      builder.setAccept(old2New(s), isAccept(s))
+
+    for (s <- states;
+         (t, l) <- outgoingTransitions(s);
+         eta = etaMap((s, l, t))) {
+      val index = etaIndex.getOrElseUpdate(eta, etaIndex.size).toChar
+      builder.addTransition(old2New(s), (index, index), old2New(t), eta)
+    }
 
     val res = builder.getAutomaton
     res.addEtaMaps(builder.etaMap)
