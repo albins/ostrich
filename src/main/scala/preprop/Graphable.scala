@@ -179,13 +179,6 @@ trait RichGraph[N, L] extends GraphTraversable[N] {
         path.pop // Drop thisNode
       }
 
-      def closeCycle() = {
-
-        closed ++= path
-        cycles += path.to
-
-      }
-
       while (!stack.isEmpty) {
         // Note: we only pop the stack when we have finished walking all neighbours
         val (thisNode, neighbours) = stack.top
@@ -194,7 +187,8 @@ trait RichGraph[N, L] extends GraphTraversable[N] {
           val nextNode = neighbours.pop
 
           if (nextNode == startNode) {
-            closeCycle()
+            closed ++= path
+            cycles += path.to
 
           } else if (!(blocked contains nextNode)) {
             scheduleVisitNext(nextNode)
