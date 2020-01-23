@@ -25,7 +25,9 @@ lazy val commonSettings = Seq(
 //  libraryDependencies += "uuverifiers" %% "princess" % "2018-10-26",
   libraryDependencies += "uuverifiers" %% "princess" % "nightly-SNAPSHOT",
   libraryDependencies += "org.sat4j" % "org.sat4j.core" % "2.3.1",
-  libraryDependencies += "org.scalacheck" %% "scalacheck" % "1.14.0" % "test"
+  libraryDependencies += "org.scalacheck" %% "scalacheck" % "1.14.0" % "test",
+  libraryDependencies += "org.scalactic" %% "scalactic" % "3.0.8",
+  libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.8" % "test"
 )
 
 
