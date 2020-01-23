@@ -157,11 +157,15 @@ trait RichGraph[N, L] extends GraphTraversable[N] {
       val blocked = MSet(startNode)
       val path = MStack(startNode)
       val noCircuit = MHashMap[N, MSet[N]]()
-      val stack = MStack((startNode, MStack(componentGraph(startNode): _*)))
+
+      def neighbourStack(node: N) =
+        MStack(componentGraph(node).filter(node.!=): _*)
+
+      val stack = MStack((startNode, neighbourStack(startNode)))
 
       def scheduleVisitNext(node: N) = {
         path push node
-        stack push ((node, MStack(componentGraph(node).filter(node.!=): _*)))
+        stack push ((node, neighbourStack(node)))
         closed -= node
         blocked += node
       }
