@@ -25,8 +25,17 @@ import ap.SimpleAPI
 import ap.terfor.{Term, ConstantTerm}
 import ap.terfor.preds.PredConj
 import ap.terfor.substitutions.ConstantSubst
-import ap.parser.{IConstant, ITerm, InputAbsy2Internal, Internal2InputAbsy,
-                  IExpression, IFormula}
+import ap.parser.{
+  IConstant,
+  ITerm,
+  InputAbsy2Internal,
+  Internal2InputAbsy,
+  IExpression,
+  IFormula
+}
+
+import strsolver.preprop.MapGraph._
+
 import dk.brics.automaton.{
   BasicAutomata,
   BasicOperations,
@@ -47,6 +56,7 @@ import scala.collection.mutable.{
   LinkedHashSet => MLinkedHashSet,
   MultiMap => MMultiMap,
   Set => MSet,
+  Map => MMap,
   Stack => MStack,
   TreeSet => MTreeSet,
   BitSet
@@ -141,7 +151,10 @@ object BricsAutomaton {
   }
 
   def fullProduct(auts: Seq[BricsAutomaton]): BricsAutomaton = {
-    println("Computing product of automata with sizes " + (auts map (_.states.size)).mkString(", "))
+    println(
+      "Computing product of automata with sizes " + (auts map (_.states.size))
+        .mkString(", ")
+    )
 
     val head = auts.head
     val builder = head.getBuilder
@@ -462,12 +475,16 @@ class BricsTLabelEnumerator(labels: Iterator[(Char, Char)])
 /**
   * Wrapper for the BRICS automaton class
   */
-class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
-
+class BricsAutomaton(val underlying: BAutomaton)
+    extends AtomicStateAutomaton
+    with Graphable[BState]
+    with RichGraph[BState] {
   import BricsAutomaton.toBAutomaton
 
   type State = BState
   type TLabel = (Char, Char)
+  type Node = State
+  type Label = TLabel
 
   override val LabelOps = BricsTLabelOps
 
@@ -476,17 +493,19 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
     println("|                BricsAutomaton")
 
     registers match {
-      case Seq() => 
-      case regs => println("| Registers:      " + (regs mkString ", ") + "")
+      case Seq() =>
+      case regs  => println("| Registers:      " + (regs mkString ", ") + "")
     }
 
     val stateAr = states.toArray
     val stateIndex = stateAr.iterator.zipWithIndex.toMap
 
     println("| Initial state:  " + stateIndex(initialState))
-    println("| Final state(s): " +
-            (for ((s, n) <- stateAr.iterator.zipWithIndex; if isAccept(s))
-             yield n).mkString(", "))
+    println(
+      "| Final state(s): " +
+        (for ((s, n) <- stateAr.iterator.zipWithIndex; if isAccept(s))
+          yield n).mkString(", ")
+    )
 
     for ((s, n) <- stateAr.iterator.zipWithIndex) {
       println("| State " + n)
@@ -517,11 +536,10 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   private val stateSeq = states.toIndexedSeq
   private lazy val state2Index = stateSeq.iterator.zipWithIndex.toMap
 
-
   private def fmtTransition(t: FromLabelTo) = {
     val (from, (labelMin, labelMax), to) = t
 
-    s"(${state2Index(from)} -[${labelMin toInt}, ${labelMax toInt}]-> ${state2Index(to)})"
+    s"(${state2Index(from)} -[${labelMin.toInt}, ${labelMax.toInt}]-> ${state2Index(to)})"
   }
 
   /**
@@ -560,7 +578,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
     val image = simpAut.parikhImageOld
 //    println("old image: " + oldImage)
 
-/*
+    /*
     SimpleAPI.withProver { p =>
       import p._
       registers foreach {
@@ -572,7 +590,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       assert(??? == SimpleAPI.ProverStatus.Valid)
     }
     newImage
- */
+     */
 
     println("done")
 
@@ -588,125 +606,34 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       finalState: State
   ): Option[Map[FromLabelTo, Set[FromLabelTo]]] =
     Exploration.measure("parikhImage::connectiveTheory") {
-      // This is the graph constructed by the solution:
-      val solutionNext = solution
+      val solutionGraph = solution
         .map { case (from, _, to) => (from, to) }
         .toList
         .groupBy(_._1)
         .mapValues(nexts => nexts.unzip._2)
         .toMap
 
-      val transitionsToState = transitions
-        .map { t =>
-          (t._3, t)
-        }
-        .toList
-        .groupBy(_._1)
-        .map { case (s, lst) => s -> lst.map(x => x._2) }
-        .toMap
-
-      val statesInPath = solution
-        .map { case (from, _, to) => List(from, to) }
-        .flatten
-        .toSet
-
-      // FIXME: visitor mixes getting nodes and doing things with nodes
-      @tailrec
-      def bfs(queue: Stream[State], visitor: State => Stream[State]): Unit = {
-        if (!queue.isEmpty)
-          bfs(queue.tail append visitor(queue.head), visitor)
-      }
-
-      // Perform a BFS starting in startNode, returning a set of unreached
-      // states
-      def unreachableFrom(startNode: State) = {
-
-        val stateIdxUnseen = statesInPath.to[collection.mutable.Set]
-
-        def markSeen(state: State) =
-          solutionNext
-            .getOrElse(state, List())
-            .filter(stateIdxUnseen contains _)
-            .map { s =>
-              stateIdxUnseen -= s
-              s
-            }
-            .toStream
-
-        stateIdxUnseen(initialState) = false
-        bfs(Stream(initialState), markSeen)
-
-        stateIdxUnseen.to[Set]
-      }
-
-      // Compute a set of cycles from a set of possible starting nodes. We know
-      // it's safe to start anywhere because they all participate in a cycle of
-      // 1 - all nodes, so we always get the full cycle wherever we start.
-      def cyclesStartingIn(nodes: Seq[State]) = {
-
-        val stateIdxUnseen = nodes.to[collection.mutable.Set]
-        val cycles: ArrayBuffer[Set[State]] = ArrayBuffer()
-
-        while (!stateIdxUnseen.isEmpty) {
-          val inCycle: ArrayBuffer[State] = ArrayBuffer()
-
-          // FIXME: these cycles might be connected to each other in the big
-          // graph and form a bigger cycle, which means they should be part of
-          // the global min-cut analysis, or maybe we don't care?
-          // - solving the general MAXIMUM cycle problem is NP-hard, but a nice
-          // compromise might be to let bigger cycles subsume self-loops
-
-          // FIXME: this is reproduced code
-          def collectCycle(state: State): Stream[State] = {
-            solutionNext(state)
-              .filter(stateIdxUnseen contains _)
-              .map { s =>
-                stateIdxUnseen -= s
-                inCycle += s
-                s
-              }
-              .toStream
-          }
-          val startNode = stateIdxUnseen.head
-          stateIdxUnseen(startNode) = false
-          inCycle += startNode
-          bfs(Stream(startNode), collectCycle)
-          cycles += inCycle.toSet
-
-        }
-
-        cycles.toSet
-      }
-
       // Compute the smallest set of pairs of transition in cycle => one of
       // these transitions must be included for connectivity
-
-      // FIXME: this is mocked: it currently returns all transitions into the cycle
-      def causeResolution(cycle: Set[State]): Seq[(FromLabelTo, Set[FromLabelTo])] = {
-        val transitionsIn = cycle
-          .flatMap(s => transitionsToState.get(s))
-          .flatten
-          .toSet
-
-        // TODO generate a new graph with all the nodes in cycle merged
-        // TODO compute the min-cut of this graph (that's the new causes)
-        val causes = solution intersect transitionsIn
-        //assert(causes.size == 1, "invalid causes: " + (causes.map(fmtTransition(_)).mkString(", ")))
-
-        // FIXME: is this really the best way?
-        causes.map(cause => (cause, transitionsIn - cause)).toVector
-        //(causes.head, transitionsIn - causes.head)
+      def causeResolution(
+          cycle: Set[State]
+      ): Seq[(FromLabelTo, Set[FromLabelTo])] = {
+        val cycleRepresentative = cycle.head
+        val connectingEdges = this.minCut(initialState, cycleRepresentative)
+        // FIXME: this always filters the entire graph; we should pre-compute a smaller subset
+        val transitionsInCycle = solution.filter {
+          case (from, _, to) =>
+            (cycle contains from) && (cycle contains to)
+        }
+        transitionsInCycle.map(t => (t, connectingEdges)).toVector
       }
 
       // Compute a set of possibly unreached states
-      val unreached = unreachableFrom(initialState)
+      val unreached = solutionGraph unreachableFrom initialState
 
       if (unreached.isEmpty) return None
 
-      val cycles = cyclesStartingIn(unreached.toSeq)
-
-      // node in cycle => set of transitions which might cause it to be included
-      // FIXME: map the transition into the cycle
+      val cycles = solutionGraph.subgraph(unreached).simpleCycles
       val implications = cycles
         .flatMap(causeResolution(_))
         .toMap
@@ -732,8 +659,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   // FIXME this method is too long
   // FIXME: this method makes a mess of which variables belong to the solver,
   // and which variables are "ours"
-  def parikhPathToEnd(finalState: State,
-                      blockingConstraint : Formula): Formula =
+  def parikhPathToEnd(finalState: State, blockingConstraint: Formula): Formula =
     Exploration.measure("parikhImagePathToEnd") {
       import TerForConvenience._
 
@@ -755,11 +681,15 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
       implicit val order = solver.order
 
-      val registerInvMap : Map[ConstantTerm, Term] =
+      val registerInvMap: Map[ConstantTerm, Term] =
         registerVar.map { case (IConstant(d), IConstant(c)) => d -> c }.toMap
 
       solver.addAssertion(
-        Conjunction.negate(ConstantSubst(registerInvMap, order)(blockingConstraint), order))
+        Conjunction.negate(
+          ConstantSubst(registerInvMap, order)(blockingConstraint),
+          order
+        )
+      )
 
       // Transition variables are positive
       solver addAssertion (transitionVar.values.toSeq >= 0)
@@ -770,14 +700,17 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
           for ((t, y) <- transitionVarSeq;
                coeff = etaMap(t)(registerIdx);
                if coeff != 0)
-          yield (coeff * y)
+            yield (coeff * y)
         ) === x
       }
 
       val registerEqs =
         IExpression.and(
-          registerVarSeq.map(_._2).zipWithIndex
-            .map(registerEqTransitions(_)))
+          registerVarSeq
+            .map(_._2)
+            .zipWithIndex
+            .map(registerEqTransitions(_))
+        )
 
 //      println("register equations: " + registerEqs)
 
@@ -848,6 +781,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
           implications: Map[FromLabelTo, Set[FromLabelTo]]
       ): ap.parser.IFormula = {
 
+        println("CONNECTED IMPLICATIONS")
         for ((included, correction) <- implications) {
           println(
             fmtTransition(included) +
@@ -855,12 +789,13 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
               "(" + correction.map(fmtTransition(_)).mkString(" || ") + ")"
           )
         }
+        println("END IMPLICATIONS")
 
         implications
           .map {
             case (t, connectors) =>
               (transitionVar(t) > 0) ===>
-              IExpression.or(connectors.map(transitionVar(_) > 0))
+                IExpression.or(connectors.map(transitionVar(_) > 0))
           }
           .reduce(_ &&& _)
       }
@@ -893,8 +828,12 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
         val flowSolution = solver.partialModel
         val selectedEdges = selectEdgesFrom(flowSolution)
         previousSolution map (
-            x => assert(x != selectedEdges, s"Generated ${flowSolution} twice")
-        )
+            x =>
+              assert(
+                x != selectedEdges,
+                s"Selected ${selectedEdges.map(fmtTransition(_))} twice"
+              )
+          )
         previousSolution = Some(selectedEdges)
         println("selected edges: " + selectedEdges.map(fmtTransition(_)))
 
@@ -908,8 +847,8 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
             val matrix =
               edgesToConjunctionI(selectedEdges) &&&
-              registerEqs &&&
-              IExpression.and(flowEquations)
+                registerEqs &&&
+                IExpression.and(flowEquations)
 
             val elimSol =
               qeSolver.projectEx(matrix, registerVar.values)
@@ -926,7 +865,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       solver.shutDown
       qeSolver.shutDown
 
-      val registerMap : Map[ConstantTerm, Term] =
+      val registerMap: Map[ConstantTerm, Term] =
         registerVar.map { case (IConstant(c), IConstant(d)) => d -> c }.toMap
 
       ConstantSubst(registerMap, order)(disjFor(image))
@@ -1118,7 +1057,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
             val rawConstraint =
               exists(prodVars.size + zVars.size, matrix)
 
-/*            val constraint =
+            /*            val constraint =
               ap.util.Timeout.withTimeoutMillis(1000) {
                 // best-effort attempt to get a quantifier-free version of the
                 // length abstraction
@@ -1325,9 +1264,9 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
     new BricsTLabelEnumerator(for ((_, lbl, _) <- transitions) yield lbl)
 
   /**
-   * Get any word accepted by this automaton, or <code>None</code>
-   * if the language is empty
-   */
+    * Get any word accepted by this automaton, or <code>None</code>
+    * if the language is empty
+    */
   def getAcceptedWord: Option[Seq[Int]] =
     (this.underlying getShortestExample true) match {
       case null => None
@@ -1335,32 +1274,36 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
     }
 
   /**
-   * Simplify this automaton. Currently, this might not necessarily result
-   * in an automaton with a minimal number of states, however.
-   */
-  def minimize : BricsAutomaton = {
-    val stateAr    = states.toArray
-    val N          = stateAr.size
+    * Simplify this automaton. Currently, this might not necessarily result
+    * in an automaton with a minimal number of states, however.
+    */
+  def minimize: BricsAutomaton = {
+    val stateAr = states.toArray
+    val N = stateAr.size
 
-    val labelSet   = for (s <- stateAr) yield {
+    val labelSet = for (s <- stateAr) yield {
       (for ((t, l) <- outgoingTransitions(s))
-       yield (l, etaMap((s, l, t)))).toSet
+        yield (l, etaMap((s, l, t)))).toSet
     }
     val stateIndex = stateAr.iterator.zipWithIndex.toMap
 
     // Initial relation between states
-    val eqvStates = Array.tabulate(N) { n1 => {
-      val s1 = stateAr(n1)
-      BitSet((for (n2 <- 0 until n1;
-                   s2 = stateAr(n2);
-                   if isAccept(s1) == isAccept(s2);
-                   if labelSet(n1) == labelSet(n2)) yield n2) : _*)
-    }}
+    val eqvStates = Array.tabulate(N) { n1 =>
+      {
+        val s1 = stateAr(n1)
+        BitSet(
+          (for (n2 <- 0 until n1;
+                s2 = stateAr(n2);
+                if isAccept(s1) == isAccept(s2);
+                if labelSet(n1) == labelSet(n2)) yield n2): _*
+        )
+      }
+    }
 
     if (eqvStates forall (_.isEmpty))
       return this
 
-    def areEqv(n1 : Int, n2 : Int) =
+    def areEqv(n1: Int, n2: Int) =
       if (n1 < n2)
         eqvStates(n2)(n1)
       else if (n2 < n1)
@@ -1368,18 +1311,21 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
       else
         true
 
-    def transSubsumes(n1 : Int, n2 : Int) = {
+    def transSubsumes(n1: Int, n2: Int) = {
       val s1 = stateAr(n1)
       val s2 = stateAr(n2)
-      outgoingTransitions(s1) forall { case (t1, l1) => {
-        val eta1 = etaMap((s1, l1, t1))
-        val t1Ind = stateIndex(t1)
-        outgoingTransitions(s2) exists { case (t2, l2) =>
-          l1 == l2 &&
-          eta1 == etaMap((s2, l2, t2)) &&
-          areEqv(t1Ind, stateIndex(t2))
+      outgoingTransitions(s1) forall {
+        case (t1, l1) => {
+          val eta1 = etaMap((s1, l1, t1))
+          val t1Ind = stateIndex(t1)
+          outgoingTransitions(s2) exists {
+            case (t2, l2) =>
+              l1 == l2 &&
+                eta1 == etaMap((s2, l2, t2)) &&
+                areEqv(t1Ind, stateIndex(t2))
+          }
         }
-      }}
+      }
     }
 
     // fixed-point loop to refine the relation between states
@@ -1392,7 +1338,7 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
           val newEqv =
             for (n2 <- oldEqv;
                  if transSubsumes(n1, n2) && transSubsumes(n2, n1))
-            yield n2
+              yield n2
           if (oldEqv != newEqv) {
             cont = true
             eqvStates(n1) = newEqv
@@ -1409,15 +1355,15 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
 
     val newStates =
       (for (n <- 0 until N; if eqvStates(n).isEmpty)
-       yield (n -> builder.getNewState)).toMap
+        yield (n -> builder.getNewState)).toMap
 
     val old2New =
       (for (n1 <- 0 until N) yield {
-         val s1 = stateAr(n1)
-         val eqv = eqvStates(n1)
-         s1 -> newStates(if (eqv.isEmpty) n1 else eqv.min)
-       }).toMap
-           
+        val s1 = stateAr(n1)
+        val eqv = eqvStates(n1)
+        s1 -> newStates(if (eqv.isEmpty) n1 else eqv.min)
+      }).toMap
+
     builder setInitialState old2New(initialState)
 
     for ((s, n) <- stateAr.iterator.zipWithIndex;
@@ -1435,12 +1381,12 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   }
 
   /**
-   * Eliminate labels (character ranges) from this automaton; labels
-   * for transitions with distinct eta labels will still be kept
-   * distinct as well, to avoid transitions being merged that should
-   * be kept
-   */
-  def makeLabelsUniform : BricsAutomaton = {
+    * Eliminate labels (character ranges) from this automaton; labels
+    * for transitions with distinct eta labels will still be kept
+    * distinct as well, to avoid transitions being merged that should
+    * be kept
+    */
+  def makeLabelsUniform: BricsAutomaton = {
     val etaIndex = new MHashMap[List[Int], Int]
 
     val builder = getBuilder
@@ -1472,6 +1418,15 @@ class BricsAutomaton(val underlying: BAutomaton) extends AtomicStateAutomaton {
   def getBuilder: BricsAutomatonBuilder = new BricsAutomatonBuilder
 
   def getTransducerBuilder: BricsTransducerBuilder = BricsTransducer.getBuilder
+
+  /**
+    *  Graph trait implementation
+    * */
+  def allNodes() = states.to
+  def edges() = transitions.to
+  def neighbours(node: State) = outgoingTransitions(node).map(_._1).to
+  def subgraph(selectedNodes: Set[State]): RichGraph[State] = ???
+
 }
 
 /**
@@ -1559,10 +1514,10 @@ class BricsAutomatonBuilder
   def isAccept(q: BricsAutomaton#State): Boolean = q.isAccept
 
   /**
-   * Remove states and transitions from which no accepting states can be
-   * reached
-   */
-  def removeBackwardsUnreachableStates() : Unit = {
+    * Remove states and transitions from which no accepting states can be
+    * reached
+    */
+  def removeBackwardsUnreachableStates(): Unit = {
     val reachable = new MHashSet[BricsAutomaton#State]
     val allStates = states
 

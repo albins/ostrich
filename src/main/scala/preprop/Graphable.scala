@@ -10,7 +10,7 @@ import scala.collection.mutable.{
 import scala.language.implicitConversions
 import scala.math.min
 
-class BFSVisitor[N](val graph: Graphable[N, Any], val startNode: N)
+class BFSVisitor[N](val graph: RichGraph[N], val startNode: N)
     extends Iterator[N] {
 
   private val nodeUnseen = MSet(graph.allNodes: _*)
@@ -31,26 +31,27 @@ class BFSVisitor[N](val graph: Graphable[N, Any], val startNode: N)
   def unvisited() = nodeUnseen.to[Set]
 }
 
-trait Graphable[N, L] {
-  def neighbours(node: N): Seq[N]
-  def allNodes(): Seq[N]
-  def edges(): Seq[(N, L, N)]
-  def subgraph(selectedNodes: Set[N]): RichGraph[N, L]
+trait Graphable[Node] {
+  type Label
+  type Edge = (Node, Label, Node)
+
+  def neighbours(node: Node): Seq[Node]
+  def allNodes(): Seq[Node]
+  def edges(): Seq[(Node, Label, Node)]
+  def subgraph(selectedNodes: Set[Node]): RichGraph[Node]
 }
 
-trait GraphTraversable[N] extends Graphable[N, Any] {
-  def startBFSFrom(startNode: N) = new BFSVisitor[N](this, startNode)
-}
+trait RichGraph[Node] extends Graphable[Node] {
+  type Cycle = Set[Node]
 
-trait RichGraph[N, L] extends GraphTraversable[N] {
-
-  // TODO make this a newtype?
-  type Cycle = Set[N]
+  def startBFSFrom(startNode: Node) = new BFSVisitor[Node](this, startNode)
 
   // Apply is what you'd expect
-  def apply(n: N) = neighbours(n)
+  def apply(n: Node) = neighbours(n)
 
-  def unreachableFrom(startNode: N) = {
+  def minCut(source: Node, drain: Node): Set[Edge] = Set()
+
+  def unreachableFrom(startNode: Node) = {
     val it = startBFSFrom(startNode)
     it.foreach(identity) // perform iteration
     it.unvisited.to[Set]
@@ -61,19 +62,19 @@ trait RichGraph[N, L] extends GraphTraversable[N] {
   // FIXME this code is SO. UGLY.
   def stronglyConnectedComponents() = {
     var smallestFreeIndex = 0
-    val depthIndex = new MHashMap[N, Int]
-    val lowLink = new MHashMap[N, Int]
-    val inCurrentComponent = new MHashMap[N, Boolean]
-    val currentComponent = new MStack[N]
-    val components = new ArrayBuffer[Set[N]]
+    val depthIndex = new MHashMap[Node, Int]
+    val lowLink = new MHashMap[Node, Int]
+    val inCurrentComponent = new MHashMap[Node, Boolean]
+    val currentComponent = new MStack[Node]
+    val components = new ArrayBuffer[Set[Node]]
 
-    def unvisited(node: N) = !(depthIndex contains node)
+    def unvisited(node: Node) = !(depthIndex contains node)
 
     for (node <- allNodes if unvisited(node)) {
       strongConnect(node)
     }
 
-    def strongConnect(node: N): Unit = {
+    def strongConnect(node: Node): Unit = {
       import scala.util.control.Breaks._
 
       depthIndex(node) = smallestFreeIndex
@@ -96,7 +97,7 @@ trait RichGraph[N, L] extends GraphTraversable[N] {
       // Generate a SCC!
       if (lowLink(node) == depthIndex(node)) {
         // pop everything from the stack, set onStack to inCurrentComponent to false
-        val component = new ArrayBuffer[N]
+        val component = new ArrayBuffer[Node]
 
         breakable {
           while (!currentComponent.isEmpty) {
@@ -122,9 +123,9 @@ trait RichGraph[N, L] extends GraphTraversable[N] {
   // networkx's Python version.
   def simpleCycles(): Set[Cycle] = {
     def unblock(
-        thisNode: N,
-        blocked: MSet[N],
-        noCircuit: MHashMap[N, MSet[N]]
+        thisNode: Node,
+        blocked: MSet[Node],
+        noCircuit: MHashMap[Node, MSet[Node]]
     ) = {
       val stack = MStack(thisNode)
       while (!stack.isEmpty) {
@@ -153,29 +154,29 @@ trait RichGraph[N, L] extends GraphTraversable[N] {
 
       val startNode = component.head
 
-      val closed = MSet[N]()
+      val closed = MSet[Node]()
       val blocked = MSet(startNode)
       val path = MStack(startNode)
-      val noCircuit = MHashMap[N, MSet[N]]()
+      val noCircuit = MHashMap[Node, MSet[Node]]()
 
-      def neighbourStack(node: N) =
+      def neighbourStack(node: Node) =
         MStack(componentGraph(node).filter(node.!=): _*)
 
       val stack = MStack((startNode, neighbourStack(startNode)))
 
-      def scheduleVisitNext(node: N) = {
+      def scheduleVisitNext(node: Node) = {
         path push node
         stack push ((node, neighbourStack(node)))
         closed -= node
         blocked += node
       }
 
-      def tieUpCycle(node: N) = {
+      def tieUpCycle(node: Node) = {
         if (closed contains node) {
           unblock(node, blocked, noCircuit)
         } else {
           for (neighbour <- componentGraph neighbours node) {
-            noCircuit.getOrElse(neighbour, MSet[N]()) += node
+            noCircuit.getOrElse(neighbour, MSet[Node]()) += node
           }
         }
         stack.pop
@@ -220,12 +221,15 @@ trait RichGraph[N, L] extends GraphTraversable[N] {
 }
 
 class MapGraph[N](val underlying: Map[N, List[N]])
-    extends Graphable[N, Any]
-    with RichGraph[N, Any] {
+    extends Graphable[N]
+    with RichGraph[N] {
+
+  type Label = Unit
+
   def allNodes() = underlying.keys.to
   def neighbours(node: N) = underlying.getOrElse(node, Set()).to
   def subgraph(selectedNodes: Set[N]) =
-    new MapGraph(
+    new MapGraph[N](
       underlying
         .filterKeys(selectedNodes contains _)
         .mapValues(nexts => nexts.filter(selectedNodes contains _))
@@ -237,5 +241,5 @@ class MapGraph[N](val underlying: Map[N, List[N]])
 }
 
 object MapGraph {
-  implicit def mapToGraph[N](m: Map[N, List[N]]) = new MapGraph(m)
+  implicit def mapToGraph[N](m: Map[N, List[N]]): MapGraph[N] = new MapGraph(m)
 }

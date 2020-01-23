@@ -2,12 +2,12 @@ package strsolver
 
 import org.scalatest.FunSuite
 import org.scalatest.Assertions._
-import strsolver.preprop.{Graphable, BFSVisitor, MapGraph, GraphTraversable}
+import strsolver.preprop.{Graphable, BFSVisitor, MapGraph}
 import strsolver.preprop.MapGraph._
 
 class TestGraphOperations extends FunSuite {
 
-  def bfsToEnd(g: GraphTraversable[Int], startNode: Int) = {
+  def bfsToEnd(g: MapGraph[Int], startNode: Int) = {
     val it = (g startBFSFrom 1)
     it.foreach(identity)
     it
@@ -83,10 +83,7 @@ class TestGraphOperations extends FunSuite {
   }
 
   test("simpleCycle finds two cycles") {
-    val g = Map(1 -> List(2, 4),
-                2 -> List(3),
-                3 -> List(1),
-                4 -> List(1))
+    val g = Map(1 -> List(2, 4), 2 -> List(3), 3 -> List(1), 4 -> List(1))
 
     assert(g.simpleCycles == Set(Set(1, 2, 3), Set(1, 4)))
   }
