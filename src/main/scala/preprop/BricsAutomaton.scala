@@ -477,14 +477,13 @@ class BricsTLabelEnumerator(labels: Iterator[(Char, Char)])
   */
 class BricsAutomaton(val underlying: BAutomaton)
     extends AtomicStateAutomaton
-    with Graphable[BState]
-    with RichGraph[BState] {
+    with Graphable[BState, (Char, Char)]
+    with RichGraph[BState, (Char, Char)] {
   import BricsAutomaton.toBAutomaton
 
   type State = BState
   type TLabel = (Char, Char)
   type Node = State
-  type Label = TLabel
 
   override val LabelOps = BricsTLabelOps
 
@@ -572,8 +571,8 @@ class BricsAutomaton(val underlying: BAutomaton)
 
     val simpAut = this.makeLabelsUniform.minimize
 
-//    val image = simpAut.parikhImageNew
-//    println("new image: " + newImage)
+    //val image = simpAut.parikhImageNew
+    //println("new image: " + newImage)
 
     val image = simpAut.parikhImageOld
 //    println("old image: " + oldImage)
@@ -618,8 +617,11 @@ class BricsAutomaton(val underlying: BAutomaton)
       def causeResolution(
           cycle: Set[State]
       ): Seq[(FromLabelTo, Set[FromLabelTo])] = {
-        val cycleRepresentative = cycle.head
+        val cycleRepresentative = cycle.last
         val connectingEdges = this.minCut(initialState, cycleRepresentative)
+        assert(!connectingEdges.isEmpty, "Found no connecting edges!")
+        println("Cause: min-cut to connect cycle is " + connectingEdges)
+
         // FIXME: this always filters the entire graph; we should pre-compute a smaller subset
         val transitionsInCycle = solution.filter {
           case (from, _, to) =>
@@ -634,6 +636,8 @@ class BricsAutomaton(val underlying: BAutomaton)
       if (unreached.isEmpty) return None
 
       val cycles = solutionGraph.subgraph(unreached).simpleCycles
+      println("Identified cycles: " + cycles.map(x => x.map(state2Index(_))))
+
       val implications = cycles
         .flatMap(causeResolution(_))
         .toMap
@@ -1424,8 +1428,8 @@ class BricsAutomaton(val underlying: BAutomaton)
     * */
   def allNodes() = states.to
   def edges() = transitions.to
-  def neighbours(node: State) = outgoingTransitions(node).map(_._1).to
-  def subgraph(selectedNodes: Set[State]): RichGraph[State] = ???
+  def transitionsFrom(node: State) = outgoingTransitions(node).map(t => (node, t._2, t._1)).toSeq
+  def subgraph(selectedNodes: Set[State]): RichGraph[State, TLabel] = ???
 
 }
 

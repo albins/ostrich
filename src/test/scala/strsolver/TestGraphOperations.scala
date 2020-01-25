@@ -7,7 +7,7 @@ import strsolver.preprop.MapGraph._
 
 class TestGraphOperations extends FunSuite {
 
-  def bfsToEnd(g: MapGraph[Int], startNode: Int) = {
+  def bfsToEnd(g: MapGraph[Int, Unit], startNode: Int) = {
     val it = (g startBFSFrom 1)
     it.foreach(identity)
     it
@@ -19,7 +19,7 @@ class TestGraphOperations extends FunSuite {
   val twoNodeCycle = Map(1 -> List(2), 2 -> List(1))
 
   test("Simple BFS with cycle iterates over all nodes") {
-    assert((allConnected startBFSFrom 1).toSeq == List(1, 2, 3, 4))
+    assert((allConnected startBFSFrom 1).toSeq == List((1, (), 2), (1, (), 3), (1, (), 4)))
   }
 
   test("BFS marks all nodes visited") {
@@ -88,6 +88,25 @@ class TestGraphOperations extends FunSuite {
     assert(g.simpleCycles == Set(Set(1, 2, 3), Set(1, 4)))
   }
 
-}
+  test("BFS finds last node of connected graph") {
+    assert(allConnected.startBFSFrom(1).pathTo(4) == Some(Seq((1, (), 4))))
+  }
 
+  test("BFS does not find disconnected node") {
+    val g = Map(1 -> List(2, 3),
+            2 -> List(2),
+            3 -> List(3),
+            4 -> List(4))
+
+    assert(g.startBFSFrom(1).pathTo(4) == None)
+  }
+
+  // test("minCut finds min cut of simple graph") {
+  //   val g = Map(1 -> List(2, 3), 2 -> List(4), 3 -> List(4), 4 -> List(5))
+
+  //   assert(g.minCut(1, 5) == List((4, (), 5)))
+
+  // }
+
+}
 // TODO property-based tests for "union of connected components contains all nodes"

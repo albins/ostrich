@@ -9,47 +9,99 @@ import scala.collection.mutable.{
 }
 import scala.language.implicitConversions
 import scala.math.min
+import scala.annotation.tailrec
+import EdgeWrapper._
 
-class BFSVisitor[N](val graph: RichGraph[N], val startNode: N)
-    extends Iterator[N] {
+class BFSVisitor[N, L](val graph: RichGraph[N, L], val startNode: N)
+    extends Iterator[(N, L, N)] {
 
   private val nodeUnseen = MSet(graph.allNodes: _*)
-  private val toVisit = MQueue[N](startNode)
   nodeUnseen -= startNode
 
+  private val firstTransitions = graph
+    .transitionsFrom(startNode)
+    .filter(t => nodeUnseen contains t.to)
+
+  firstTransitions.foreach(t => nodeUnseen -= t.to)
+
+  private val toVisit = firstTransitions.to[MQueue]
+
   override def hasNext = !toVisit.isEmpty
+
   override def next() = {
-    val thisNode = toVisit.dequeue
-    for (neighbour <- graph.neighbours(thisNode)
+    val thisEdge @ (_, _, thisNode) = toVisit.dequeue
+
+    for (edge @ (_, label, neighbour) <- graph.transitionsFrom(thisNode)
          if nodeUnseen contains neighbour) {
       nodeUnseen -= neighbour
-      toVisit enqueue neighbour
+      toVisit enqueue edge
     }
 
-    thisNode
+    thisEdge
   }
   def unvisited() = nodeUnseen.to[Set]
+  def nodeVisited(node: N) = !(nodeUnseen contains node)
+  def pathTo(endNode: N) = {
+    val path = this.takeWhile(e => e.from != endNode).toList
+    if (nodeVisited(endNode)) {
+      Some(path)
+    } else {
+      None
+    }
+  }
 }
 
-trait Graphable[Node] {
-  type Label
-  type Edge = (Node, Label, Node)
+trait Graphable[Node, Label] {
 
-  def neighbours(node: Node): Seq[Node]
+  def transitionsFrom(node: Node): Seq[(Node, Label, Node)]
   def allNodes(): Seq[Node]
   def edges(): Seq[(Node, Label, Node)]
-  def subgraph(selectedNodes: Set[Node]): RichGraph[Node]
+  def subgraph(selectedNodes: Set[Node]): RichGraph[Node, Label]
 }
 
-trait RichGraph[Node] extends Graphable[Node] {
+trait RichGraph[Node, Label] extends Graphable[Node, Label] {
   type Cycle = Set[Node]
 
-  def startBFSFrom(startNode: Node) = new BFSVisitor[Node](this, startNode)
+  def startBFSFrom(startNode: Node) =
+    new BFSVisitor[Node, Label](this, startNode)
+
+  def neighbours(node: Node): Seq[Node] = transitionsFrom(node).map(_.to)
 
   // Apply is what you'd expect
   def apply(n: Node) = neighbours(n)
 
-  def minCut(source: Node, drain: Node): Set[Edge] = Set()
+  // Calculate the min-cut between the unweighted flow network between
+  // source and drain. This uses Edmonds-Karp.
+  def minCut(source: Node, drain: Node): Set[(Node, Label, Node)] = {
+
+    @tailrec
+    def findResidual(
+        residual: MapGraph[Node, Label]
+    ): MapGraph[Node, Label] =
+      residual.startBFSFrom(source).pathTo(drain) match {
+        case None => residual
+        case Some(augmentingPath) =>
+          findResidual(residual.dropEdges(augmentingPath.to))
+      }
+
+    val residual = findResidual(
+      new MapGraph(this.edges.filter(!_.isSelfEdge))
+    )
+
+    val reachableInResidual: Set[Node] =
+      residual
+        .startBFSFrom(source)
+        .flatMap(e => List(e.to, e.from))
+        .toSet
+
+    this.edges
+      .filter(
+        e =>
+          (reachableInResidual contains e.from) &&
+            !(reachableInResidual contains e.to)
+      )
+      .to
+  }
 
   def unreachableFrom(startNode: Node) = {
     val it = startBFSFrom(startNode)
@@ -220,26 +272,48 @@ trait RichGraph[Node] extends Graphable[Node] {
 
 }
 
-class MapGraph[N](val underlying: Map[N, List[N]])
-    extends Graphable[N]
-    with RichGraph[N] {
+class MapGraph[N, L](val underlying: Map[N, List[(N, L)]])
+    extends Graphable[N, L]
+    with RichGraph[N, L] {
 
-  type Label = Unit
+  def this(edges: Seq[(N, L, N)]) {
+    this(edges.groupBy(_._1).mapValues(_.map(v => (v._3, v._2)).toList))
+  }
 
   def allNodes() = underlying.keys.to
-  def neighbours(node: N) = underlying.getOrElse(node, Set()).to
+  def transitionsFrom(node: N) =
+    underlying
+      .getOrElse(node, Set())
+      .map { case (to, label) => (node, label, to) }
+      .to
   def subgraph(selectedNodes: Set[N]) =
-    new MapGraph[N](
+    new MapGraph[N, L](
       underlying
         .filterKeys(selectedNodes contains _)
-        .mapValues(nexts => nexts.filter(selectedNodes contains _))
+        .mapValues(nexts => nexts.filter(selectedNodes contains _._1))
     )
+  def dropEdges(edgesToRemove: Set[(N, L, N)]) = new MapGraph[N, L](
+    this.edges.filter(v => !(edgesToRemove contains v)).to
+  )
   def edges() =
-    underlying.flatMap { case (v, ws) => ws.map(w => (v, (), w)) }.toSeq
+    underlying.flatMap { case (v, ws) => ws.map(w => (v, w._2, w._1)) }.toSeq
   override def toString = underlying.toString
-
 }
 
 object MapGraph {
-  implicit def mapToGraph[N](m: Map[N, List[N]]): MapGraph[N] = new MapGraph(m)
+  implicit def mapToLabellessGraph[N](m: Map[N, List[N]]): MapGraph[N, Unit] =
+    new MapGraph(m.mapValues(_.map(v => (v, ()))))
+  implicit def mapToGraph[N, L](m: Map[N, List[(N, L)]]): MapGraph[N, L] =
+    new MapGraph(m)
+}
+
+class EdgeWrapper[N, L](val underlying: (N, L, N)) {
+  def isSelfEdge() = underlying._1 == underlying._3
+  def from() = underlying._1
+  def to() = underlying._3
+}
+
+object EdgeWrapper {
+  implicit def tupleToEdgeWrapper[N, L](t: (N, L, N)): EdgeWrapper[N, L] =
+    new EdgeWrapper(t)
 }
