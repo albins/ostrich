@@ -127,11 +127,24 @@ class TestGraphOperations extends FunSuite {
     val g = Map(
       0 -> List(1),
       1 -> List(2),
-      2 -> List(2),
+      2 -> List(2, 3),
       3 -> List(3)
     )
 
     assert(g.minCut(0, 1) == Set((0, (), 1)))
+
+  }
+
+  test("minCut solves buggy example #3 correctly") {
+    val g = Map(
+      0 -> List(1),
+      1 -> List(1, 2, 3),
+      2 -> List(2, 4),
+      3 -> List(3),
+      4 -> List(3, 4)
+    )
+
+    assert(g.minCut(0, 4) == Set((0, (), 1)))
 
   }
 
