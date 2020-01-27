@@ -39,6 +39,7 @@ class BFSVisitor[N, L](val graph: RichGraph[N, L], val startNode: N)
   def nodeVisited(node: N) = !(nodeUnseen contains node)
   def pathTo(endNode: N): Option[Seq[(N, L, N)]] = {
     if (!(graph hasNode endNode)) {
+      println("Graph doesn't have end node " + endNode)
       return None
     }
 
@@ -88,6 +89,7 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] {
   // Calculate the min-cut between the unweighted flow network between
   // source and drain. This uses Edmonds-Karp.
   def minCut(source: Node, drain: Node): Set[(Node, Label, Node)] = {
+    println(s"Computing min-cut between ${source} and ${drain}")
 
     @tailrec
     def findResidual(
@@ -95,13 +97,17 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] {
     ): MapGraph[Node, Label] =
       residual.startBFSFrom(source).pathTo(drain) match {
         case None => residual
-        case Some(augmentingPath) =>
+        case Some(augmentingPath) => {
+          println("Removing augmenting path " + augmentingPath)
           findResidual(residual.dropEdges(augmentingPath.to))
+        }
       }
 
     val residual = findResidual(
       new MapGraph(this.edges.filter(!_.isSelfEdge))
     )
+
+    println("initial residual " + residual)
 
     val visitor = residual.startBFSFrom(source).visitAll
 
@@ -290,9 +296,9 @@ class MapGraph[N, L](val underlying: Map[N, List[(N, L)]])
     extends Graphable[N, L]
     with RichGraph[N, L] {
 
-  // FIXME: if  a node references another node as a target, keep it!
   def this(edges: Seq[(N, L, N)]) {
-    this(edges.groupBy(_._1).mapValues(_.map(v => (v._3, v._2)).toList))
+    this(edges.map((_._3 -> List())).toMap ++
+           edges.groupBy(_._1).mapValues(_.map(v => (v._3, v._2)).toList).toMap)
   }
 
   override def hasNode(node: N) = underlying contains node
