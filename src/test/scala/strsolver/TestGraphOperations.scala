@@ -123,5 +123,17 @@ class TestGraphOperations extends FunSuite {
 
   }
 
+  test("minCut solves buggy example #2 correctly") {
+    val g = Map(
+      0 -> List(1),
+      1 -> List(2),
+      2 -> List(2),
+      3 -> List(3)
+    )
+
+    assert(g.minCut(0, 1) == Set((0, (), 1)))
+
+  }
+
 }
 // TODO property-based tests for "union of connected components contains all nodes"

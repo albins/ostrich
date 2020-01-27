@@ -73,6 +73,7 @@ trait Graphable[Node, Label] {
   def edges(): Seq[(Node, Label, Node)]
   def subgraph(selectedNodes: Set[Node]): RichGraph[Node, Label]
   def hasNode(node: Node): Boolean = allNodes contains node
+  def dropEdges(edges: Set[(Node, Label, Node)]): RichGraph[Node, Label]
 }
 
 trait RichGraph[Node, Label] extends Graphable[Node, Label] {
@@ -107,12 +108,14 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] {
       new MapGraph(this.edges.filter(!_.isSelfEdge))
     )
 
-    println("initial residual " + residual)
+    println("final residual " + residual)
 
     val visitor = residual.startBFSFrom(source).visitAll
 
     val reachableInResidual: Set[Node] =
       residual.allNodes.filter(visitor.nodeVisited(_)).toSet
+
+    println("reachable nodes in residual: " + reachableInResidual)
 
     this.edges
       .filter(
@@ -315,9 +318,19 @@ class MapGraph[N, L](val underlying: Map[N, List[(N, L)]])
         .filterKeys(selectedNodes contains _)
         .mapValues(nexts => nexts.filter(selectedNodes contains _._1))
     )
-  def dropEdges(edgesToRemove: Set[(N, L, N)]) = new MapGraph[N, L](
-    this.edges.filter(v => !(edgesToRemove contains v)).to
-  )
+
+  // NOTE: Maintains all nodes
+  def dropEdges(edgesToRemove: Set[(N, L, N)]) = {
+    val res = MHashMap[N, List[(N, L)]](underlying.toSeq: _*)
+
+    for ((from, label, to) <- edgesToRemove)  {
+      // TODO this is *not* efficient
+      res(from) = res(from).filter((to, label).!=)
+    }
+
+    new MapGraph(res.toMap)
+  }
+
   def edges() =
     underlying.flatMap { case (v, ws) => ws.map(w => (v, w._2, w._1)) }.toSeq
   override def toString = underlying.toString
