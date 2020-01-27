@@ -7,32 +7,24 @@ import strsolver.preprop.MapGraph._
 
 class TestGraphOperations extends FunSuite {
 
-  def bfsToEnd(g: MapGraph[Int, Unit], startNode: Int) = {
-    val it = (g startBFSFrom 1)
-    it.foreach(identity)
-    it
-  }
-
   val allConnected =
     Map(1 -> List(1, 2, 3, 4), 2 -> List(2), 3 -> List(3, 2, 4), 4 -> List())
 
   val twoNodeCycle = Map(1 -> List(2), 2 -> List(1))
 
   test("Simple BFS with cycle iterates over all nodes") {
-    assert((allConnected startBFSFrom 1).toSeq == List((1, (), 2), (1, (), 3), (1, (), 4)))
+    assert((allConnected startBFSFrom 1).toSeq == List(1, 2, 3, 4))
   }
 
   test("BFS marks all nodes visited") {
-    val it = bfsToEnd(allConnected, 1)
-    assert(it.unvisited.isEmpty)
+    assert((allConnected startBFSFrom 1).visitAll().unvisited.isEmpty)
   }
 
   test("BFS misses disconnected bit") {
     val g =
       Map(1 -> List(1, 2, 3), 2 -> List(2), 3 -> List(3, 2), 4 -> List())
 
-    val it = bfsToEnd(g, 1)
-    assert(it.unvisited == Set(4))
+    assert((g startBFSFrom 1).visitAll().unvisited == Set(4))
 
   }
 
@@ -93,20 +85,31 @@ class TestGraphOperations extends FunSuite {
   }
 
   test("BFS does not find disconnected node") {
-    val g = Map(1 -> List(2, 3),
-            2 -> List(2),
-            3 -> List(3),
-            4 -> List(4))
+    val g = Map(1 -> List(2, 3), 2 -> List(2), 3 -> List(3), 4 -> List(4))
 
     assert(g.startBFSFrom(1).pathTo(4) == None)
   }
 
-  // test("minCut finds min cut of simple graph") {
-  //   val g = Map(1 -> List(2, 3), 2 -> List(4), 3 -> List(4), 4 -> List(5))
+  test("BFS generates correct path of straight-line graph") {
+    assert(
+      Map(1 -> List(2), 2 -> List(3), 3 -> List())
+        .startBFSFrom(1)
+        .pathTo(3) == Some(Seq((1, (), 2), (2, (), 3)))
+    )
+  }
 
-  //   assert(g.minCut(1, 5) == List((4, (), 5)))
+  test("minCut finds min cut of simple graph") {
+    val g = Map(
+      1 -> List(2, 3),
+      2 -> List(4),
+      3 -> List(4),
+      4 -> List(5),
+      5 -> List()
+    )
 
-  // }
+    assert(g.minCut(1, 5) == Set((4, (), 5)))
+
+  }
 
 }
 // TODO property-based tests for "union of connected components contains all nodes"

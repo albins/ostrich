@@ -13,41 +13,55 @@ import scala.annotation.tailrec
 import EdgeWrapper._
 
 class BFSVisitor[N, L](val graph: RichGraph[N, L], val startNode: N)
-    extends Iterator[(N, L, N)] {
+    extends Iterator[N] {
 
   private val nodeUnseen = MSet(graph.allNodes: _*)
+  private val toVisit = MQueue[N](startNode)
+  private val connectingEdge = MHashMap[N, Option[(N, L, N)]](startNode -> None)
+
   nodeUnseen -= startNode
-
-  private val firstTransitions = graph
-    .transitionsFrom(startNode)
-    .filter(t => nodeUnseen contains t.to)
-
-  firstTransitions.foreach(t => nodeUnseen -= t.to)
-
-  private val toVisit = firstTransitions.to[MQueue]
 
   override def hasNext = !toVisit.isEmpty
 
   override def next() = {
-    val thisEdge @ (_, _, thisNode) = toVisit.dequeue
+    val thisNode = toVisit.dequeue
 
     for (edge @ (_, label, neighbour) <- graph.transitionsFrom(thisNode)
          if nodeUnseen contains neighbour) {
       nodeUnseen -= neighbour
-      toVisit enqueue edge
+      toVisit enqueue neighbour
+      connectingEdge(neighbour) = Some(edge)
     }
 
-    thisEdge
+    thisNode
   }
   def unvisited() = nodeUnseen.to[Set]
   def nodeVisited(node: N) = !(nodeUnseen contains node)
-  def pathTo(endNode: N) = {
-    val path = this.takeWhile(e => e.from != endNode).toList
+  def pathTo(endNode: N): Option[Seq[(N, L, N)]] = {
+    if (!(graph hasNode endNode)) {
+      return None
+    }
+
+    this.takeWhile(endNode.!=).foreach(identity)
     if (nodeVisited(endNode)) {
-      Some(path)
+
+      @tailrec
+      def walkBackwards(
+          currentNode: N,
+          path: List[(N, L, N)]
+      ): List[(N, L, N)] = connectingEdge(currentNode) match {
+        case None                      => path
+        case Some(edge @ (from, _, _)) => walkBackwards(from, (edge :: path))
+      }
+
+      Some(walkBackwards(endNode, List()))
     } else {
       None
     }
+  }
+  def visitAll() = {
+    this.foreach(identity)
+    this
   }
 }
 
@@ -57,6 +71,7 @@ trait Graphable[Node, Label] {
   def allNodes(): Seq[Node]
   def edges(): Seq[(Node, Label, Node)]
   def subgraph(selectedNodes: Set[Node]): RichGraph[Node, Label]
+  def hasNode(node: Node): Boolean = allNodes contains node
 }
 
 trait RichGraph[Node, Label] extends Graphable[Node, Label] {
@@ -88,11 +103,10 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] {
       new MapGraph(this.edges.filter(!_.isSelfEdge))
     )
 
+    val visitor = residual.startBFSFrom(source).visitAll
+
     val reachableInResidual: Set[Node] =
-      residual
-        .startBFSFrom(source)
-        .flatMap(e => List(e.to, e.from))
-        .toSet
+      residual.allNodes.filter(visitor.nodeVisited(_)).toSet
 
     this.edges
       .filter(
@@ -276,9 +290,12 @@ class MapGraph[N, L](val underlying: Map[N, List[(N, L)]])
     extends Graphable[N, L]
     with RichGraph[N, L] {
 
+  // FIXME: if  a node references another node as a target, keep it!
   def this(edges: Seq[(N, L, N)]) {
     this(edges.groupBy(_._1).mapValues(_.map(v => (v._3, v._2)).toList))
   }
+
+  override def hasNode(node: N) = underlying contains node
 
   def allNodes() = underlying.keys.to
   def transitionsFrom(node: N) =

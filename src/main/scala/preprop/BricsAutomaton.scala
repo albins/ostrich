@@ -617,12 +617,15 @@ class BricsAutomaton(val underlying: BAutomaton)
       def causeResolution(
           cycle: Set[State]
       ): Seq[(FromLabelTo, Set[FromLabelTo])] = {
-        val cycleRepresentative = cycle.last
-        val connectingEdges = this.minCut(initialState, cycleRepresentative)
+        // TODO: compute the min-cut of a homomorphism with the cycle
+        // merged into a single node, or, even better, pre-compute a
+        // homomorphism with all cycles merged
+        val connectingEdges = cycle.flatMap(this.minCut(initialState, _))
         assert(!connectingEdges.isEmpty, "Found no connecting edges!")
         println("Cause: min-cut to connect cycle is " + connectingEdges)
 
-        // FIXME: this always filters the entire graph; we should pre-compute a smaller subset
+        // TODO: this always filters the entire graph; we should pre-compute a
+        // smaller subset of just transitions in the cycles we have to filter on
         val transitionsInCycle = solution.filter {
           case (from, _, to) =>
             (cycle contains from) && (cycle contains to)
