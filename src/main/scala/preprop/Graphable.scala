@@ -11,6 +11,7 @@ import scala.language.implicitConversions
 import scala.math.min
 import scala.annotation.tailrec
 import EdgeWrapper._
+import PathWrapper._
 
 class BFSVisitor[N, L](val graph: RichGraph[N, L], val startNode: N)
     extends Iterator[N] {
@@ -73,6 +74,7 @@ trait Graphable[Node, Label] {
   def subgraph(selectedNodes: Set[Node]): RichGraph[Node, Label]
   def hasNode(node: Node): Boolean = allNodes contains node
   def dropEdges(edges: Set[(Node, Label, Node)]): RichGraph[Node, Label]
+  def addEdges(edges: Iterable[(Node, Label, Node)]): RichGraph[Node, Label]
 }
 
 trait RichGraph[Node, Label] extends Graphable[Node, Label] {
@@ -99,7 +101,11 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] {
         case None => residual
         case Some(augmentingPath) => {
           println("Removing augmenting path " + augmentingPath)
-          findResidual(residual.dropEdges(augmentingPath.to))
+          findResidual(
+            residual
+              .dropEdges(augmentingPath.to)
+              .addEdges(augmentingPath.reversePath)
+          )
         }
       }
 
@@ -337,6 +343,9 @@ class MapGraph[N, L](val underlying: Map[N, List[(N, L)]])
     new MapGraph(res.toMap)
   }
 
+  def addEdges(edgesToAdd: Iterable[(N, L, N)]) =
+    new MapGraph(this.edges ++ edgesToAdd)
+
   def edges() =
     underlying.flatMap { case (v, ws) => ws.map(w => (v, w._2, w._1)) }.toSeq
   override def toString = underlying.toString
@@ -358,6 +367,20 @@ class EdgeWrapper[N, L](val underlying: (N, L, N)) {
 object EdgeWrapper {
   implicit def tupleToEdgeWrapper[N, L](t: (N, L, N)): EdgeWrapper[N, L] =
     new EdgeWrapper(t)
+}
+
+class PathWrapper[N, L](path: Iterable[(N, L, N)]) {
+  val underlying = path.toSeq
+  def reversePath(): Iterable[(N, L, N)] = underlying.map {
+    case (from, label, to) => (to, label, from)
+  }
+}
+
+object PathWrapper {
+  implicit def iterableToEdgeWrapper[N, L](
+      t: Iterable[(N, L, N)]
+  ): PathWrapper[N, L] =
+    new PathWrapper(t)
 }
 
 // Generate a graph with an equivalence class of nodes merged into one, while
@@ -407,5 +430,8 @@ class CompositeGraph[N, L](
 
   def subgraph(nodes: Set[N]) =
     new CompositeGraph(underlying.subgraph(nodes), equivalentNodes)
+
+  def addEdges(edgesToAdd: Iterable[(N, L, N)]) =
+    new CompositeGraph(underlying.addEdges(edgesToAdd), equivalentNodes)
 
 }

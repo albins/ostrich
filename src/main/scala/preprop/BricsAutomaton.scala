@@ -1474,6 +1474,13 @@ class BricsAutomaton(val underlying: BAutomaton)
     new MapGraph(selectedEdges.toSeq)
   }
 
+  def addEdges(edgesToAdd: Iterable[(State, TLabel, State)]) = {
+    val selectedEdges: Set[(State, TLabel, State)] = this
+      .edges()
+      .toSet ++ edgesToAdd
+    new MapGraph(selectedEdges.toSeq)
+  }
+
 }
 
 /**
