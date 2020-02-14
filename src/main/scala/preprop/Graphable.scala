@@ -10,6 +10,7 @@ import scala.collection.mutable.{
 import scala.language.implicitConversions
 import scala.math.min
 import scala.annotation.tailrec
+import com.typesafe.scalalogging.LazyLogging
 import EdgeWrapper._
 import PathWrapper._
 
@@ -40,7 +41,6 @@ class BFSVisitor[N, L](val graph: RichGraph[N, L], val startNode: N)
   def nodeVisited(node: N) = !(nodeUnseen contains node)
   def pathTo(endNode: N): Option[Seq[(N, L, N)]] = {
     if (!(graph hasNode endNode)) {
-      println("Graph doesn't have end node " + endNode)
       return None
     }
 
@@ -77,7 +77,7 @@ trait Graphable[Node, Label] {
   def addEdges(edges: Iterable[(Node, Label, Node)]): RichGraph[Node, Label]
 }
 
-trait RichGraph[Node, Label] extends Graphable[Node, Label] {
+trait RichGraph[Node, Label] extends Graphable[Node, Label] with LazyLogging {
   type Cycle = Set[Node]
 
   def startBFSFrom(startNode: Node) =
@@ -91,7 +91,7 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] {
   // Calculate the min-cut between the unweighted flow network between
   // source and drain. This uses Edmonds-Karp.
   def minCut(source: Node, drain: Node): Set[(Node, Label, Node)] = {
-    println(s"Computing min-cut between ${source} and ${drain}")
+    logger.debug(s"Computing min-cut between ${source} and ${drain}")
 
     @tailrec
     def findResidual(
@@ -100,7 +100,7 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] {
       residual.startBFSFrom(source).pathTo(drain) match {
         case None => residual
         case Some(augmentingPath) => {
-          println("Removing augmenting path " + augmentingPath)
+          logger.debug(s"Removing augmenting path ${augmentingPath}")
           findResidual(
             residual
               .dropEdges(augmentingPath.to)
@@ -113,14 +113,12 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] {
       new MapGraph(this.edges.filter(!_.isSelfEdge))
     )
 
-    println("final residual " + residual)
+    logger.debug(s"Final residual ${residual}")
 
     val visitor = residual.startBFSFrom(source).visitAll
 
     val reachableInResidual: Set[Node] =
       residual.allNodes.filter(visitor.nodeVisited(_)).toSet
-
-    println("reachable nodes in residual: " + reachableInResidual)
 
     this.edges
       .filter(

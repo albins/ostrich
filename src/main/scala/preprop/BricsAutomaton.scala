@@ -21,6 +21,7 @@ package strsolver.preprop
 import java.io.{FileWriter, PrintWriter}
 
 import strsolver.Regex2AFA
+import com.typesafe.scalalogging.LazyLogging
 import ap.SimpleAPI
 import ap.terfor.{Term, ConstantTerm}
 import ap.terfor.preds.PredConj
@@ -478,7 +479,8 @@ class BricsTLabelEnumerator(labels: Iterator[(Char, Char)])
 class BricsAutomaton(val underlying: BAutomaton)
     extends AtomicStateAutomaton
     with Graphable[BState, (Char, Char)]
-    with RichGraph[BState, (Char, Char)] {
+    with RichGraph[BState, (Char, Char)]
+    with LazyLogging {
   import BricsAutomaton.toBAutomaton
 
   type State = BState
@@ -566,34 +568,83 @@ class BricsAutomaton(val underlying: BAutomaton)
 
   type FromLabelTo = (State, TLabel, State)
 
+  def toDot: String = {
+    val stateAr = states.toArray
+    val stateIndex = stateAr.iterator.zipWithIndex.toMap
+
+    val out = new StringBuilder()
+    out ++= "digraph Automaton {\n"
+
+    def addStatement(s: String) = out ++= s"\t${s};\n"
+
+    addStatement("rankdir = LR")
+    addStatement("node [shape = point,witdth=1]; qi")
+
+    addStatement(s"qi -> ${stateIndex(initialState)}")
+
+    for ((s, n) <- stateAr.iterator.zipWithIndex) {
+      val acceptAnnot = if (isAccept(s)) {
+        "shape=doublecircle, "
+      } else {
+        ""
+      }
+      addStatement(s"${n} [${acceptAnnot}label=${n}]")
+      for ((t, l) <- outgoingTransitions(s)) {
+        val registerPart = (registers zip etaMap((s, l, t)))
+          .map { case (r, o) => s"${r} += ${o}" }
+          .mkString(",\\l")
+
+        val labelPart = s"${l._1.toInt}--${l._2.toInt}"
+
+        val edgeLabel = "\"" + labelPart + "\\n" + registerPart.toString + "\""
+        addStatement(s"${n} -> ${stateIndex(t)} [minlen=1,label=${edgeLabel}]")
+      }
+    }
+
+    out ++= "}\n"
+    out.toString
+  }
+
   override def parikhImage: Formula = {
-    print("Computing Parikh image ... ")
 
     val simpAut = this.makeLabelsUniform.minimize
+    val newImage = simpAut.parikhImageNew
+    val oldImage = simpAut.parikhImageOld
 
-    val image = simpAut.parikhImageNew
-    //println("new image: " + newImage)
-
-    //val image = simpAut.parikhImageOld
-    //println("old image: " + oldImage)
-
-    /*
     SimpleAPI.withProver { p =>
       import p._
       registers foreach {
         case IConstant(c) => addConstantRaw(c)
       }
       implicit val o = order
-      addConclusion(Conjunction.conj(newImage, o) <=>
-                      Conjunction.conj(oldImage, o))
-      assert(??? == SimpleAPI.ProverStatus.Valid)
+      val reduced =
+        PresburgerTools.elimQuantifiersWithPreds(Conjunction.conj(oldImage, o))
+
+      addConclusion(
+        Conjunction.conj(newImage, o) <=>
+          Conjunction.conj(reduced, o)
+      )
+      if (??? != SimpleAPI.ProverStatus.Valid) {
+        println(
+          s"simplified new image: ${pp(simplify(asIFormula(Conjunction.conj(newImage, o))))}"
+        )
+        println(s"simplified old image: ${pp(simplify(asIFormula(reduced)))}")
+        println(s"Countermodel: ${partialModel}")
+
+        println("Automata:")
+        println(this.toString)
+
+        import java.io._
+        val file = new File("problem-automata.dot")
+        val bw = new BufferedWriter(new FileWriter(file))
+        bw.write(this.toDot)
+        bw.flush()
+        assert(false)
+      }
+
     }
+    logger.info("Both images were equivalent!")
     newImage
-     */
-
-    println("done")
-
-    image
   }
 
   // Return: either None (solution is connected), or Some(blocking clause)
@@ -618,7 +669,7 @@ class BricsAutomaton(val underlying: BAutomaton)
 
       if (unreached.isEmpty) return None
 
-      println(
+      logger.debug(
         "The following states were unreachable from start " + state2Index(
           initialState
         )
@@ -630,15 +681,15 @@ class BricsAutomaton(val underlying: BAutomaton)
       // Create a new graph with all the reachable nodes merged into one
       val solutionMerged = this.mergeNodes(reachedFromStart)
 
-      println("Original graph:")
-      for (edge <- this.edges) {
-        println(fmtTransition(edge))
-      }
+      // println("Original graph:")
+      // for (edge <- this.edges) {
+      //   println(fmtTransition(edge))
+      // }
 
-      println("Merged:")
-      for (edge <- solutionMerged.edges) {
-        println(fmtTransition(edge))
-      }
+      // println("Merged:")
+      // for (edge <- solutionMerged.edges) {
+      //   println(fmtTransition(edge))
+      // }
 
       // Compute the smallest set of pairs of transition in cycle => one of
       // these transitions must be included for connectivity
@@ -649,7 +700,7 @@ class BricsAutomaton(val underlying: BAutomaton)
         // merged into a single node, or, even better, pre-compute a
         // homomorphism with all cycles merged
 
-        println("causeResolution: " + cycle.map(state2Index(_)))
+        logger.debug(s"causeResolution: ${cycle.map(state2Index(_))}")
 
         // Also merge the cycle into one node
         val cycleSolutionMerged = solutionMerged.mergeNodes(cycle)
@@ -657,10 +708,7 @@ class BricsAutomaton(val underlying: BAutomaton)
         val connectingEdges =
           cycleSolutionMerged.minCut(initialState, cycle.head)
         assert(!connectingEdges.isEmpty, "Found no connecting edges!")
-        println(
-          "Cause: min-cut to connect cycle is " + connectingEdges
-            .map(fmtTransition(_))
-        )
+        logger.info(s"Min-cut is ${connectingEdges.map(fmtTransition(_))}")
 
         // TODO: this always filters the entire graph; we should pre-compute a
         // smaller subset of just transitions in the cycles we have to filter on
@@ -672,7 +720,7 @@ class BricsAutomaton(val underlying: BAutomaton)
       }
 
       val cycles = solutionGraph.subgraph(unreached).simpleCycles
-      println("Identified cycles: " + cycles.map(x => x.map(state2Index(_))))
+      //println("Identified cycles: " + cycles.map(x => x.map(state2Index(_))))
 
       val implications = cycles
         .flatMap(causeResolution(_))
@@ -821,15 +869,15 @@ class BricsAutomaton(val underlying: BAutomaton)
           implications: Map[FromLabelTo, Set[FromLabelTo]]
       ): ap.parser.IFormula = {
 
-        println("CONNECTED IMPLICATIONS")
-        for ((included, correction) <- implications) {
-          println(
-            fmtTransition(included) +
-              " ==> " +
-              "(" + correction.map(fmtTransition(_)).mkString(" || ") + ")"
-          )
-        }
-        println("END IMPLICATIONS")
+        // println("CONNECTED IMPLICATIONS")
+        // for ((included, correction) <- implications) {
+        //   println(
+        //     fmtTransition(included) +
+        //       " ==> " +
+        //       "(" + correction.map(fmtTransition(_)).mkString(" || ") + ")"
+        //   )
+        // }
+        // println("END IMPLICATIONS")
 
         implications
           .map {
@@ -867,19 +915,20 @@ class BricsAutomaton(val underlying: BAutomaton)
       while (solver.??? == SimpleAPI.ProverStatus.Sat) {
         val flowSolution = solver.partialModel
         val selectedEdges = selectEdgesFrom(flowSolution)
-        previousSolution map (
-            x =>
-              assert(
-                x != selectedEdges,
-                s"Selected ${selectedEdges.map(fmtTransition(_))} twice"
-              )
-          )
+        // previousSolution map (
+        //     x =>
+        //       assert(
+        //         x != selectedEdges,
+        //         s"Selected ${selectedEdges.map(fmtTransition(_))} twice"
+        //       )
+        //   )
+
         previousSolution = Some(selectedEdges)
-        println("selected edges: " + selectedEdges.map(fmtTransition(_)))
+        logger.debug("selected edges: " + selectedEdges.map(fmtTransition(_)))
 
         val blockedClause = connectiveTheory(selectedEdges, finalState) match {
           case Some(implications) => {
-            println("Disconnected!")
+            logger.info("Disconnected!")
             implicationsToBlockingClause(implications)
           }
 
@@ -898,7 +947,7 @@ class BricsAutomaton(val underlying: BAutomaton)
           }
         }
 
-        println("Blocking clause:" + blockedClause)
+        logger.debug("Blocking clause:" + blockedClause)
         solver.addAssertion(blockedClause)
       }
 
