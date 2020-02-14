@@ -632,12 +632,12 @@ class BricsAutomaton(val underlying: BAutomaton)
 
       println("Original graph:")
       for (edge <- this.edges) {
-          println(fmtTransition(edge))
+        println(fmtTransition(edge))
       }
 
       println("Merged:")
       for (edge <- solutionMerged.edges) {
-          println(fmtTransition(edge))
+        println(fmtTransition(edge))
       }
 
       // Compute the smallest set of pairs of transition in cycle => one of
@@ -654,7 +654,8 @@ class BricsAutomaton(val underlying: BAutomaton)
         // Also merge the cycle into one node
         val cycleSolutionMerged = solutionMerged.mergeNodes(cycle)
 
-        val connectingEdges = cycleSolutionMerged.minCut(initialState, cycle.head)
+        val connectingEdges =
+          cycleSolutionMerged.minCut(initialState, cycle.head)
         assert(!connectingEdges.isEmpty, "Found no connecting edges!")
         println(
           "Cause: min-cut to connect cycle is " + connectingEdges
@@ -669,7 +670,6 @@ class BricsAutomaton(val underlying: BAutomaton)
         }
         transitionsInCycle.map(t => (t, connectingEdges)).toVector
       }
-
 
       val cycles = solutionGraph.subgraph(unreached).simpleCycles
       println("Identified cycles: " + cycles.map(x => x.map(state2Index(_))))
@@ -1468,7 +1468,9 @@ class BricsAutomaton(val underlying: BAutomaton)
     outgoingTransitions(node).map(t => (node, t._2, t._1)).toSeq
   def subgraph(selectedNodes: Set[State]): RichGraph[State, TLabel] = ???
   def dropEdges(edgesToDrop: Set[(State, TLabel, State)]) = {
-    val selectedEdges: Set[(State, TLabel, State)] = this.edges().toSet &~ edgesToDrop
+    val selectedEdges: Set[(State, TLabel, State)] = this
+      .edges()
+      .toSet &~ edgesToDrop
     new MapGraph(selectedEdges.toSeq)
   }
 

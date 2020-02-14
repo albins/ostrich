@@ -15,5 +15,5 @@ object IntConstraintStore {
   def setOrder(o: TermOrder): Unit = {
     order = o
   }
-  def getOrder : TermOrder = order
+  def getOrder: TermOrder = order
 }

@@ -441,7 +441,7 @@ abstract class Exploration(
     res
   }
 
-/*
+  /*
   private def getProductParikhImage(auts : Seq[Automaton]) : Formula = {
     val bAuts =
       for (aut <- auts)
@@ -459,7 +459,7 @@ abstract class Exploration(
       aut.parikhImage
     }).toList
   }
- */
+   */
 
   private def getNotDeclare(seq: Seq[ArrayBuffer[BricsAutomaton]]) = {
     val res = new MHashSet[ConstantTerm]()
@@ -660,144 +660,152 @@ abstract class Exploration(
         }
       }
 
-      measure("parikh-consistency-check") { SimpleAPI.withProver { p =>
-        import p._
+      measure("parikh-consistency-check") {
+        SimpleAPI.withProver { p =>
+          import p._
 
 //        setConstructProofs(true)
 
-        val o = IntConstraintStore.getOrder
-        addConstantsRaw(o sort o.orderedConstants)
+          val o = IntConstraintStore.getOrder
+          addConstantsRaw(o sort o.orderedConstants)
 
-        def addConst(c : ConstantTerm) : Unit =
-          if (!(order.orderedConstants contains c))
-            addConstantRaw(c)
+          def addConst(c: ConstantTerm): Unit =
+            if (!(order.orderedConstants contains c))
+              addConstantRaw(c)
 
-        def addConsts(cs : Iterable[ConstantTerm]) : Unit =
-          cs map addConst
+          def addConsts(cs: Iterable[ConstantTerm]): Unit =
+            cs map addConst
 
-        def addConstsFrom(f : Formula) : Unit = f match {
-          case f : Conjunction =>
-            addConsts(f.order sort f.constants)
-        }
+          def addConstsFrom(f: Formula): Unit = f match {
+            case f: Conjunction =>
+              addConsts(f.order sort f.constants)
+          }
 
-        def addConstsFromI(f : IFormula) : Unit =
-          addConsts(SymbolCollector constantsSorted f)
+          def addConstsFromI(f: IFormula): Unit =
+            addConsts(SymbolCollector constantsSorted f)
 
-        def addConstsFromC(t : TermConstraint) : Unit =
-          t.aut match {
-            case aut : BricsAutomaton =>
-              for (t <- aut.registers)
-                addConsts(SymbolCollector constantsSorted t)
-            case _ =>
+          def addConstsFromC(t: TermConstraint): Unit =
+            t.aut match {
+              case aut: BricsAutomaton =>
+                for (t <- aut.registers)
+                  addConsts(SymbolCollector constantsSorted t)
+              case _ =>
               // nothing
+            }
+
+          // println("output parikh formula")
+          // parikhIntFormula.foreach{case formula => {SMTLineariser((formula)); println()}}
+
+          // the input int constraints
+          addAssertion(IntConstraintStore())
+
+          // the derived int constraints, e.g from substr and length relation
+          addAssertion(StoreLC())
+
+          // the preop int constraints
+          for (i <- 0 to LCStack.size - 1) {
+            val preOpIntFormula = LCStack(i)
+            preOpIntFormula().foreach { a =>
+              addConstsFromI(a)
+            }
+            preOpIntFormula().foreach(addAssertion(_))
           }
 
-        // println("output parikh formula")
-        // parikhIntFormula.foreach{case formula => {SMTLineariser((formula)); println()}}
+          println("handle automata with registers")
 
-        // the input int constraints
-        addAssertion(IntConstraintStore())
+          // TODO: make sure that automata are handled in deterministic order
 
-        // the derived int constraints, e.g from substr and length relation
-        addAssertion(StoreLC())
+          for (t <- tmpBuffer)
+            addConstsFromC(t)
+          val constraintsPerTerm =
+            tmpBuffer.groupBy { case TermConstraint(aTerm, _) => aTerm }
 
-        // the preop int constraints
-        for (i <- 0 to LCStack.size - 1) {
-          val preOpIntFormula = LCStack(i)
-          preOpIntFormula().foreach {
-            a => addConstsFromI(a)
+          println("Considered terms:")
+          for ((t, auts) <- constraintsPerTerm) {
+            println("   " + t)
+            for (TermConstraint(_, aut) <- auts) {
+              val ba = AtomicStateAutomatonAdapter
+                .intern(aut)
+                .asInstanceOf[BricsAutomaton]
+              println(
+                "      <" +
+                  (ba.registers mkString ", ") + ">, \tsize " +
+                  ba.states.size
+              )
+            }
           }
-          preOpIntFormula().foreach(addAssertion(_))
+
+          implicit val bricsAutOrdering =
+            new Ordering[BricsAutomaton] {
+              def compare(x: BricsAutomaton, y: BricsAutomaton) =
+                y.states.size - x.states.size
+            }
+
+          implicit val bricsAutQueueOrdering =
+            new Ordering[PriorityQueue[BricsAutomaton]] {
+              def compare(
+                  x: PriorityQueue[BricsAutomaton],
+                  y: PriorityQueue[BricsAutomaton]
+              ) =
+                bricsAutOrdering.compare(x.head, y.head)
+            }
+
+          val autQueuesPerTerm =
+            for ((t, auts) <- constraintsPerTerm) yield {
+              val bAuts =
+                for (TermConstraint(_, aut) <- auts)
+                  yield AtomicStateAutomatonAdapter
+                    .intern(aut)
+                    .asInstanceOf[BricsAutomaton]
+              val (withoutRegs, withRegs) =
+                bAuts partition (_.registers.isEmpty)
+              val queue =
+                new PriorityQueue[BricsAutomaton]
+
+              if (!withoutRegs.isEmpty)
+                queue += BricsAutomaton productSpecially withoutRegs
+              queue ++= withRegs
+
+              t -> queue
+            }
+
+          for ((_, autQueue) <- autQueuesPerTerm)
+            for (aut <- autQueue)
+              addAssertion(order sort aut.parikhImage)
+
+          val globalQueue = new PriorityQueue[PriorityQueue[BricsAutomaton]]
+          for ((_, autQueue) <- autQueuesPerTerm)
+            if (autQueue.size > 1)
+              globalQueue += autQueue
+
+          var result = ???
+          while (!globalQueue.isEmpty && result == ProverStatus.Sat) {
+            println(" ... still " + result)
+
+            val nextQueue = globalQueue.dequeue
+            val aut1 = nextQueue.dequeue
+            val aut2 = nextQueue.dequeue
+
+            val productAut = BricsAutomaton.product(List(aut1, aut2))
+            nextQueue += productAut
+
+            if (nextQueue.size > 1)
+              globalQueue += nextQueue
+
+            addAssertion(order sort productAut.parikhImage)
+            result = ???
+          }
+
+          println("final result of Parikh test: " + result)
+
+          result match {
+            case ProverStatus.Sat => throw FoundModel(model.toMap)
+            // return List() to stand for Unknow
+            case ProverStatus.Unsat => return List()
+          }
+
         }
-
-        println("handle automata with registers")
-
-        // TODO: make sure that automata are handled in deterministic order
-
-        for (t <- tmpBuffer)
-          addConstsFromC(t)
-        val constraintsPerTerm =
-          tmpBuffer.groupBy { case TermConstraint(aTerm, _) => aTerm }
-
-        println("Considered terms:")
-        for ((t, auts) <- constraintsPerTerm) {
-          println("   " + t)
-          for (TermConstraint(_, aut) <- auts) {
-            val ba = AtomicStateAutomatonAdapter.intern(aut)
-                                                .asInstanceOf[BricsAutomaton]
-            println("      <" +
-                    (ba.registers mkString ", ") + ">, \tsize " +
-                    ba.states.size)
-          }
-        }
-
-        implicit val bricsAutOrdering =
-          new Ordering[BricsAutomaton] {
-            def compare(x : BricsAutomaton, y : BricsAutomaton) =
-              y.states.size - x.states.size
-          }
-
-        implicit val bricsAutQueueOrdering =
-          new Ordering[PriorityQueue[BricsAutomaton]] {
-            def compare(x : PriorityQueue[BricsAutomaton],
-                        y : PriorityQueue[BricsAutomaton]) =
-              bricsAutOrdering.compare(x.head, y.head)
-          }
-
-        val autQueuesPerTerm =
-          for ((t, auts) <- constraintsPerTerm) yield {
-            val bAuts =
-              for (TermConstraint(_, aut) <- auts)
-              yield AtomicStateAutomatonAdapter.intern(aut)
-                                               .asInstanceOf[BricsAutomaton]
-            val (withoutRegs, withRegs) =
-              bAuts partition (_.registers.isEmpty)
-            val queue =
-              new PriorityQueue[BricsAutomaton]
-
-            if (!withoutRegs.isEmpty)
-              queue += BricsAutomaton productSpecially withoutRegs
-            queue ++= withRegs
-
-            t -> queue
-          }
-
-        for ((_, autQueue) <- autQueuesPerTerm)
-          for (aut <- autQueue)
-            addAssertion(order sort aut.parikhImage)
-
-        val globalQueue = new PriorityQueue[PriorityQueue[BricsAutomaton]]
-        for ((_, autQueue) <- autQueuesPerTerm)
-          if (autQueue.size > 1)
-            globalQueue += autQueue
-
-        var result = ???
-        while (!globalQueue.isEmpty && result == ProverStatus.Sat) {
-          println(" ... still " + result)
-
-          val nextQueue = globalQueue.dequeue
-          val aut1 = nextQueue.dequeue
-          val aut2 = nextQueue.dequeue
-
-          val productAut = BricsAutomaton.product(List(aut1, aut2))
-          nextQueue += productAut
-
-          if (nextQueue.size > 1)
-            globalQueue += nextQueue
-
-          addAssertion(order sort productAut.parikhImage)
-          result = ???
-        }
-
-        println("final result of Parikh test: " + result)
-
-        result match {
-          case ProverStatus.Sat => throw FoundModel(model.toMap)
-          // return List() to stand for Unknow
-          case ProverStatus.Unsat => return List()
-        }
-
-      }}
+      }
     }
     case (op, args, res) :: otherApps =>
       dfExploreCompleteOp(
