@@ -571,11 +571,11 @@ class BricsAutomaton(val underlying: BAutomaton)
 
     val simpAut = this.makeLabelsUniform.minimize
 
-    //val image = simpAut.parikhImageNew
+    val image = simpAut.parikhImageNew
     //println("new image: " + newImage)
 
-    val image = simpAut.parikhImageOld
-//    println("old image: " + oldImage)
+    //val image = simpAut.parikhImageOld
+    //println("old image: " + oldImage)
 
     /*
     SimpleAPI.withProver { p =>
@@ -612,6 +612,34 @@ class BricsAutomaton(val underlying: BAutomaton)
         .mapValues(nexts => nexts.unzip._2)
         .toMap
 
+      val it = startBFSFrom(initialState)
+      val reachedFromStart = it.to[Set]
+      val unreached = it.unvisited.to[Set]
+
+      if (unreached.isEmpty) return None
+
+      println(
+        "The following states were unreachable from start " + state2Index(
+          initialState
+        )
+          + ": "
+          + unreached
+            .map(state2Index(_))
+      )
+
+      // Create a new graph with all the reachable nodes merged into one
+      val solutionMerged = this.mergeNodes(reachedFromStart)
+
+      println("Original graph:")
+      for (edge <- this.edges) {
+          println(fmtTransition(edge))
+      }
+
+      println("Merged:")
+      for (edge <- solutionMerged.edges) {
+          println(fmtTransition(edge))
+      }
+
       // Compute the smallest set of pairs of transition in cycle => one of
       // these transitions must be included for connectivity
       def causeResolution(
@@ -620,9 +648,18 @@ class BricsAutomaton(val underlying: BAutomaton)
         // TODO: compute the min-cut of a homomorphism with the cycle
         // merged into a single node, or, even better, pre-compute a
         // homomorphism with all cycles merged
-        val connectingEdges = cycle.flatMap(this.minCut(initialState, _))
+
+        println("causeResolution: " + cycle.map(state2Index(_)))
+
+        // Also merge the cycle into one node
+        val cycleSolutionMerged = solutionMerged.mergeNodes(cycle)
+
+        val connectingEdges = cycleSolutionMerged.minCut(initialState, cycle.head)
         assert(!connectingEdges.isEmpty, "Found no connecting edges!")
-        println("Cause: min-cut to connect cycle is " + connectingEdges)
+        println(
+          "Cause: min-cut to connect cycle is " + connectingEdges
+            .map(fmtTransition(_))
+        )
 
         // TODO: this always filters the entire graph; we should pre-compute a
         // smaller subset of just transitions in the cycles we have to filter on
@@ -633,10 +670,6 @@ class BricsAutomaton(val underlying: BAutomaton)
         transitionsInCycle.map(t => (t, connectingEdges)).toVector
       }
 
-      // Compute a set of possibly unreached states
-      val unreached = solutionGraph unreachableFrom initialState
-
-      if (unreached.isEmpty) return None
 
       val cycles = solutionGraph.subgraph(unreached).simpleCycles
       println("Identified cycles: " + cycles.map(x => x.map(state2Index(_))))
@@ -1431,8 +1464,13 @@ class BricsAutomaton(val underlying: BAutomaton)
     * */
   def allNodes() = states.to
   def edges() = transitions.to
-  def transitionsFrom(node: State) = outgoingTransitions(node).map(t => (node, t._2, t._1)).toSeq
+  def transitionsFrom(node: State) =
+    outgoingTransitions(node).map(t => (node, t._2, t._1)).toSeq
   def subgraph(selectedNodes: Set[State]): RichGraph[State, TLabel] = ???
+  def dropEdges(edgesToDrop: Set[(State, TLabel, State)]) = {
+    val selectedEdges: Set[(State, TLabel, State)] = this.edges().toSet &~ edgesToDrop
+    new MapGraph(selectedEdges.toSeq)
+  }
 
 }
 

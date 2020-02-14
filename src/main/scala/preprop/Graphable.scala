@@ -67,7 +67,6 @@ class BFSVisitor[N, L](val graph: RichGraph[N, L], val startNode: N)
 }
 
 trait Graphable[Node, Label] {
-
   def transitionsFrom(node: Node): Seq[(Node, Label, Node)]
   def allNodes(): Seq[Node]
   def edges(): Seq[(Node, Label, Node)]
@@ -293,6 +292,11 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] {
     cycles.toSet
   }
 
+  // Create a new homomorphic graph by merging the given nodes, returning both
+  // the new graph and the resulting composite node in that graph.
+  def mergeNodes(nodesToMerge: Iterable[Node]): RichGraph[Node, Label] =
+    new CompositeGraph(this, nodesToMerge.to)
+
 }
 
 class MapGraph[N, L](val underlying: Map[N, List[(N, L)]])
@@ -300,8 +304,10 @@ class MapGraph[N, L](val underlying: Map[N, List[(N, L)]])
     with RichGraph[N, L] {
 
   def this(edges: Seq[(N, L, N)]) {
-    this(edges.map((_._3 -> List())).toMap ++
-           edges.groupBy(_._1).mapValues(_.map(v => (v._3, v._2)).toList).toMap)
+    this(
+      edges.map((_._3 -> List())).toMap ++
+        edges.groupBy(_._1).mapValues(_.map(v => (v._3, v._2)).toList).toMap
+    )
   }
 
   override def hasNode(node: N) = underlying contains node
@@ -323,7 +329,7 @@ class MapGraph[N, L](val underlying: Map[N, List[(N, L)]])
   def dropEdges(edgesToRemove: Set[(N, L, N)]) = {
     val res = MHashMap[N, List[(N, L)]](underlying.toSeq: _*)
 
-    for ((from, label, to) <- edgesToRemove)  {
+    for ((from, label, to) <- edgesToRemove) {
       // TODO this is *not* efficient
       res(from) = res(from).filter((to, label).!=)
     }
@@ -352,4 +358,54 @@ class EdgeWrapper[N, L](val underlying: (N, L, N)) {
 object EdgeWrapper {
   implicit def tupleToEdgeWrapper[N, L](t: (N, L, N)): EdgeWrapper[N, L] =
     new EdgeWrapper(t)
+}
+
+// Generate a graph with an equivalence class of nodes merged into one, while
+// still preserving identity for transitions, except self-looping edges to/from
+// the equivalent nodes. This means that e.g. transitionsFrom(n) might return
+// edges not actually starting in n!
+class CompositeGraph[N, L](
+    val underlying: RichGraph[N, L],
+    val equivalentNodes: Set[N]
+) extends Graphable[N, L]
+    with RichGraph[N, L] {
+
+  val representativeNode: N = equivalentNodes.head
+
+  // Keep only the representative node for the equivalence class
+  def allNodes() =
+    ((underlying.allNodes.to[Set] -- equivalentNodes) + representativeNode).to
+
+  private def toEqClass(edge: (N, L, N)) = edge match {
+    case (_, _, to) => equivalentNodes contains to
+  }
+
+  private def fromEqClass(edge: (N, L, N)) = edge match {
+    case (from, _, _) => equivalentNodes contains from
+  }
+
+  // Keep all edges not both from and to nodes in equivalentNodes
+  // TODO in a real implementation we might not actually want this!
+  def edges = underlying.edges.filter(e => !fromEqClass(e) || !toEqClass(e))
+
+  // - for any node not in the equivalence class: just its transitions
+  // - for any node in the equivalence class: all transitions from any
+  //   node in that class not going into the class itself
+  def transitionsFrom(fromNode: N) =
+    if (equivalentNodes contains fromNode) {
+      equivalentNodes
+        .flatMap(underlying.transitionsFrom(_).filter(!toEqClass(_)))
+        .to
+    } else {
+      underlying transitionsFrom fromNode
+    }
+
+  // generate a new underlying, and instantiate a copy of self with same
+  // parameters after performing the operation.
+  def dropEdges(edges: Set[(N, L, N)]) =
+    new CompositeGraph(underlying.dropEdges(edges), equivalentNodes)
+
+  def subgraph(nodes: Set[N]) =
+    new CompositeGraph(underlying.subgraph(nodes), equivalentNodes)
+
 }
