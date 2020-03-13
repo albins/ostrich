@@ -90,7 +90,6 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] with LazyLogging {
   // Calculate the min-cut between the unweighted flow network between
   // source and drain. This uses Edmonds-Karp.
   def minCut(source: Node, drain: Node): Set[(Node, Label, Node)] = {
-    logger.debug(s"Computing min-cut between ${source} and ${drain}")
 
     @tailrec
     def findResidual(
@@ -99,7 +98,6 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] with LazyLogging {
       residual.startBFSFrom(source).pathTo(drain) match {
         case None => residual
         case Some(augmentingPath) => {
-          logger.debug(s"Removing augmenting path ${augmentingPath}")
           findResidual(
             residual
               .dropEdges(augmentingPath.to)
@@ -111,8 +109,6 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] with LazyLogging {
     val residual = findResidual(
       new MapGraph(this.edges.filter(!_.isSelfEdge))
     )
-
-    logger.debug(s"Final residual ${residual}")
 
     val visitor = residual.startBFSFrom(source).visitAll
 
@@ -306,7 +302,7 @@ class MapGraph[N, L](val underlying: Map[N, List[(N, L)]])
     extends Graphable[N, L]
     with RichGraph[N, L] {
 
-  def this(edges: Seq[(N, L, N)]) {
+  def this(edges: Traversable[(N, L, N)]) {
     this(
       edges.map((_._3 -> List())).toMap ++
         edges.groupBy(_._1).mapValues(_.map(v => (v._3, v._2)).toList).toMap
