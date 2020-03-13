@@ -1543,10 +1543,7 @@ class BricsAutomaton(val underlying: BAutomaton)
     outgoingTransitions(node).map(t => (node, t._2, t._1)).toSeq
   def subgraph(selectedNodes: Set[State]): RichGraph[State, TLabel] = ???
   def dropEdges(edgesToDrop: Set[(State, TLabel, State)]) = {
-    val selectedEdges: Set[(State, TLabel, State)] = this
-      .edges()
-      .toSet &~ edgesToDrop
-    new MapGraph(selectedEdges.toSeq)
+    new MapGraph(edges.toSet &~ edgesToDrop)
   }
 
   def addEdges(edgesToAdd: Iterable[(State, TLabel, State)]) = {
