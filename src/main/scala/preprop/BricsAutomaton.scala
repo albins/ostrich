@@ -668,22 +668,22 @@ class BricsAutomaton(val underlying: BAutomaton)
 
       if (unreached.isEmpty) return None
 
-      logger.debug(
-        "The following states were unreachable from start " + state2Index(
-          initialState
-        )
-          + ": "
-          + unreached
-            .map(state2Index(_))
-      )
+      // logger.debug(
+      //   "The following states were unreachable from start " + state2Index(
+      //     initialState
+      //   )
+      //     + ": "
+      //     + unreached
+      //       .map(state2Index(_))
+      // )
 
       // Create a new graph with all the reachable nodes merged into one
       val solutionMerged = this.mergeNodes(reachedFromStart)
 
-      println("Original graph:")
-      for (edge <- this.edges) {
-        println(fmtTransition(edge))
-      }
+      // println("Original graph:")
+      // for (edge <- this.edges) {
+      //   println(fmtTransition(edge))
+      // }
 
       // println("Merged:")
       // for (edge <- solutionMerged.edges) {
@@ -704,7 +704,7 @@ class BricsAutomaton(val underlying: BAutomaton)
         // merged into a single node, or, even better, pre-compute a
         // homomorphism with all cycles merged
 
-        logger.debug(s"causeResolution: ${cycle.map(state2Index(_))}")
+        // logger.debug(s"causeResolution: ${cycle.map(state2Index(_))}")
 
         // Also merge the cycle into one node
         val cycleSolutionMerged = solutionMerged.flatMergeNodes(cycle)
@@ -879,26 +879,26 @@ class BricsAutomaton(val underlying: BAutomaton)
           implications: Map[FromLabelTo, Set[FromLabelTo]]
       ): ap.parser.IFormula = {
 
-        println("CONNECTED IMPLICATIONS")
-        for ((included, correction) <- implications) {
-          println(
-            fmtTransition(included) +
-              " ==> " +
-              "(" + correction.map(fmtTransition(_)).mkString(" || ") + ")"
-          )
-        }
-        println("Which means... (in variables)")
+        // println("CONNECTED IMPLICATIONS")
+        // for ((included, correction) <- implications) {
+        //   println(
+        //     fmtTransition(included) +
+        //       " ==> " +
+        //       "(" + correction.map(fmtTransition(_)).mkString(" || ") + ")"
+        //   )
+        // }
+        // println("Which means... (in variables)")
 
-        for ((included, correction) <- implications) {
-          println(
-            s"${transitionVar(included)} > 0" +
-              " ==> " +
-              "(" + correction
-              .map(v => s"${transitionVar(v)} > 0")
-              .mkString(" || ") + ")"
-          )
-        }
-        println("END IMPLICATIONS")
+        // for ((included, correction) <- implications) {
+        //   println(
+        //     s"${transitionVar(included)} > 0" +
+        //       " ==> " +
+        //       "(" + correction
+        //       .map(v => s"${transitionVar(v)} > 0")
+        //       .mkString(" || ") + ")"
+        //   )
+        // }
+        // println("END IMPLICATIONS")
 
         implications
           .map {
@@ -931,26 +931,26 @@ class BricsAutomaton(val underlying: BAutomaton)
       // FIXME make this a stream-generating method that streams out generalised
       // solutions, and ditch the arraybuffer
 
-      var previousSolution: Option[Any] = None
+      // var previousSolution: Option[Any] = None
 
       while (solver.??? == SimpleAPI.ProverStatus.Sat) {
         val flowSolution = solver.partialModel
-        logger.debug("New flow solution: " + flowSolution)
+        // logger.trace("New flow solution: " + flowSolution)
         val selectedEdges = selectEdgesFrom(flowSolution)
-        logger.debug("selected edges: " + selectedEdges.map(fmtTransition(_)))
-        previousSolution map (
-            x =>
-              assert(
-                x != selectedEdges,
-                s"Selected ${selectedEdges.map(fmtTransition(_))} twice"
-              )
-          )
+        // logger.trace("selected edges: " + selectedEdges.map(fmtTransition(_)))
+        // previousSolution map (
+        //     x =>
+        //       assert(
+        //         x != selectedEdges,
+        //         s"Selected ${selectedEdges.map(fmtTransition(_))} twice"
+        //       )
+        //   )
 
-        previousSolution = Some(selectedEdges)
+        // previousSolution = Some(selectedEdges)
 
         val blockedClause = connectiveTheory(selectedEdges) match {
           case Some(implications) => {
-            logger.debug("Disconnected!")
+            // logger.debug("Disconnected!")
             implicationsToBlockingClause(implications)
           }
 
@@ -969,7 +969,7 @@ class BricsAutomaton(val underlying: BAutomaton)
           }
         }
 
-        logger.debug("Blocking clause:" + blockedClause)
+        // logger.debug("Blocking clause:" + blockedClause)
         solver.addAssertion(blockedClause)
       }
 
