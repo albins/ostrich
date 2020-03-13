@@ -2,7 +2,7 @@ package strsolver
 
 import org.scalatest.FunSuite
 import org.scalatest.Assertions._
-import strsolver.preprop.{Graphable, BFSVisitor, MapGraph}
+import strsolver.preprop.{Graphable, BFSVisitor, MapGraph, RichGraph, CompositeGraph}
 import strsolver.preprop.MapGraph._
 
 class TestGraphOperations extends FunSuite {
@@ -146,6 +146,36 @@ class TestGraphOperations extends FunSuite {
 
     assert(g.minCut(0, 4) == Set((0, (), 1)))
 
+  }
+
+  test("merge and min-cut bug does not occur") {
+    val g = Map(
+      (0 -> List(0, 1, 2)),
+      (1 -> List(1, 3)),
+      (2 -> List(2, 3, 1)),
+      (3 -> List(3))
+    )
+
+    val gMerged = g.mergeNodes(Set(0,2,3))
+    import gMerged.equivalentNode
+
+    assert(g.minCut(0, 1) == Set((0, (), 1), (0, (), 2)))
+    assert(gMerged.minCut(0, 1).flatMap(_._2) == Set((0, (), 1), (2, (), 1)))
+  }
+
+  test("merge path bug does not occur") {
+    val g = Map(
+      (0 -> List(0, 2)),
+      (1 -> List(1, 3)),
+      (2 -> List(2, 3, 1)),
+      (3 -> List(3))
+    )
+
+    val gMerged = g.mergeNodes(Set(0,2,3))
+
+    import gMerged.equivalentNode
+
+    assert(gMerged.startBFSFrom(0).pathTo(1).map(_.flatMap(_._2)) == Some(List((2, (), 1))))
   }
 
 }

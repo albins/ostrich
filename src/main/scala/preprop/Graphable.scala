@@ -43,7 +43,6 @@ class BFSVisitor[N, L](val graph: RichGraph[N, L], val startNode: N)
     if (!(graph hasNode endNode)) {
       return None
     }
-
     this.takeWhile(endNode.!=).foreach(identity)
     if (nodeVisited(endNode)) {
 
@@ -298,8 +297,8 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] with LazyLogging {
 
   // Create a new homomorphic graph by merging the given nodes, returning both
   // the new graph and the resulting composite node in that graph.
-  def mergeNodes(nodesToMerge: Iterable[Node]): RichGraph[Node, Label] =
-    new CompositeGraph(this, nodesToMerge.to)
+  def mergeNodes(nodesToMerge: Iterable[Node]): CompositeGraph[Node, Label] =
+    CompositeGraph(this, nodesToMerge.to)
 
 }
 
@@ -360,6 +359,7 @@ class EdgeWrapper[N, L](val underlying: (N, L, N)) {
   def isSelfEdge() = underlying._1 == underlying._3
   def from() = underlying._1
   def to() = underlying._3
+  def label() = underlying._2
 }
 
 object EdgeWrapper {
@@ -381,55 +381,133 @@ object PathWrapper {
     new PathWrapper(t)
 }
 
+sealed abstract class CompositeNode[N] extends Product with Serializable {
+  def representative(): N
+}
+
+object CompositeNode {
+  final case class MultiNode[N](ns: Iterable[N]) extends CompositeNode[N] {
+    val nodes = ns.to[Set]
+
+    def representative() = nodes.head
+  }
+
+  final case class SingleNode[N](node: N) extends CompositeNode[N] {
+    def representative() = node
+  }
+}
+
+object CompositeGraph {
+  def apply[N, L](graphToMerge: RichGraph[N, L], equivalentNodes: Set[N]) = {
+    val mergedClass = new CompositeNode.MultiNode(equivalentNodes)
+    val nodeToEqClass: Map[N, CompositeNode[N]] = graphToMerge.allNodes
+      .map(
+        node =>
+          node ->
+            (if (equivalentNodes contains node) {
+               mergedClass
+             } else {
+               new CompositeNode.SingleNode(node)
+             })
+      )
+      .toMap
+
+    // Now, merge the redundant edges
+    val underlying: RichGraph[CompositeNode[N], Set[(N, L, N)]] =
+      MapGraph.mapToGraph(
+        graphToMerge.edges
+          .map {
+            case edge @ (from, _, to) =>
+              (nodeToEqClass(from), edge, nodeToEqClass(to))
+          }
+          .groupBy(e => (e.from, e.to))
+          .map {
+            case ((from, to), edgeLump) =>
+              (from, edgeLump.map(_.label).toSet, to)
+          }
+          .groupBy(_.from)
+          .mapValues(_.map(e => (e.to, e.label)).toList)
+      )
+
+    new CompositeGraph(underlying, nodeToEqClass)
+  }
+
+}
+
 // Generate a graph with an equivalence class of nodes merged into one, while
 // still preserving identity for transitions, except self-looping edges to/from
 // the equivalent nodes. This means that e.g. transitionsFrom(n) might return
 // edges not actually starting in n!
 class CompositeGraph[N, L](
-    val underlying: RichGraph[N, L],
-    val equivalentNodes: Set[N]
-) extends Graphable[N, L]
-    with RichGraph[N, L] {
+    private val underlying: RichGraph[CompositeNode[N], Set[(N, L, N)]],
+    private val nodeToEqClass: Map[N, CompositeNode[N]]
+) extends Graphable[CompositeNode[N], Set[(N, L, N)]]
+    with RichGraph[CompositeNode[N], Set[(N, L, N)]] {
 
-  val representativeNode: N = equivalentNodes.head
+  implicit def equivalentNode(node: N): CompositeNode[N] = nodeToEqClass(node)
 
-  // Keep only the representative node for the equivalence class
-  def allNodes() =
-    ((underlying.allNodes.to[Set] -- equivalentNodes) + representativeNode).to
+  // FIXME; these should actually return proper CompositeGraph:s
+  def addEdges(
+      edges: Iterable[(CompositeNode[N], Set[(N, L, N)], CompositeNode[N])]
+  ): RichGraph[CompositeNode[N], Set[(N, L, N)]] = underlying.addEdges(edges)
+  def dropEdges(
+      edges: Set[(CompositeNode[N], Set[(N, L, N)], CompositeNode[N])]
+  ): RichGraph[CompositeNode[N], Set[(N, L, N)]] = underlying.dropEdges(edges)
+  def subgraph(
+      selectedNodes: Set[CompositeNode[N]]
+  ): RichGraph[CompositeNode[N], Set[(N, L, N)]] =
+    underlying.subgraph(selectedNodes)
+  def transitionsFrom(
+      node: CompositeNode[N]
+  ): Seq[(CompositeNode[N], Set[(N, L, N)], CompositeNode[N])] =
+    underlying.transitionsFrom(node)
 
-  private def toEqClass(edge: (N, L, N)) = edge match {
-    case (_, _, to) => equivalentNodes contains to
-  }
+  def allNodes = underlying.allNodes
+  def edges = underlying.edges
 
-  private def fromEqClass(edge: (N, L, N)) = edge match {
-    case (from, _, _) => equivalentNodes contains from
-  }
+  def flatMergeNodes(nodesToMerge: Iterable[N]): CompositeGraph[N, L] = {
+    val newClass = new CompositeNode.MultiNode(nodesToMerge)
+    val affectedClasses = newClass.nodes
+      .map(this.nodeToEqClass(_))
+      .filter(_.isInstanceOf[CompositeNode.MultiNode[N]])
+      .to[Set]
 
-  // Keep all edges not both from and to nodes in equivalentNodes
-  // TODO in a real implementation we might not actually want this!
-  def edges = underlying.edges.filter(e => !fromEqClass(e) || !toEqClass(e))
+    assert(affectedClasses.isEmpty, "NOT IMPLEMENTED: non-disjoint merging!")
 
-  // - for any node not in the equivalence class: just its transitions
-  // - for any node in the equivalence class: all transitions from any
-  //   node in that class not going into the class itself
-  def transitionsFrom(fromNode: N) =
-    if (equivalentNodes contains fromNode) {
-      equivalentNodes
-        .flatMap(underlying.transitionsFrom(_).filter(!toEqClass(_)))
-        .to
-    } else {
-      underlying transitionsFrom fromNode
+    val nodeToEqClass = this.nodeToEqClass.map {
+      // This is safe, because we know we never overlap an equivalence class
+      case (node, eqClass: CompositeNode.MultiNode[N]) => (node, eqClass)
+      case (node, eqClass: CompositeNode.SingleNode[N]) =>
+        node -> (if (newClass.nodes contains eqClass.node) {
+                   newClass
+                 } else {
+                   eqClass
+                 })
     }
 
-  // generate a new underlying, and instantiate a copy of self with same
-  // parameters after performing the operation.
-  def dropEdges(edges: Set[(N, L, N)]) =
-    new CompositeGraph(underlying.dropEdges(edges), equivalentNodes)
+    // do the standard merging of nodes!
 
-  def subgraph(nodes: Set[N]) =
-    new CompositeGraph(underlying.subgraph(nodes), equivalentNodes)
+    val underlying: RichGraph[CompositeNode[N], Set[(N, L, N)]] =
+      MapGraph.mapToGraph(
+        this.edges
+          .map {
+            case (from, label, to) =>
+              (
+                nodeToEqClass(from.representative),
+                label,
+                nodeToEqClass(to.representative)
+              )
+          }
+          .groupBy(e => (e.from, e.to))
+          .map {
+            case ((from, to), edgeLump) =>
+              (from, edgeLump.map(_.label).flatten.toSet, to)
+          }
+          .groupBy(_.from)
+          .mapValues(_.map(e => (e.to, e.label)).toList)
+      )
 
-  def addEdges(edgesToAdd: Iterable[(N, L, N)]) =
-    new CompositeGraph(underlying.addEdges(edgesToAdd), equivalentNodes)
+    new CompositeGraph(underlying, nodeToEqClass)
 
+  }
 }

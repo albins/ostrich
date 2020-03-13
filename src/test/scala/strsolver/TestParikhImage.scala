@@ -43,7 +43,7 @@ class TestParikhImage extends FunSuite {
         )
         println(s"simplified old image: ${pp(simplify(asIFormula(reduced)))}")
 
-        assert(false, "Countermodel: ${partialModel}")
+        assert(false, s"Countermodel: ${partialModel}")
       }
 
     }

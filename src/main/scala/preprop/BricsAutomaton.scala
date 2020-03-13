@@ -685,15 +685,15 @@ class BricsAutomaton(val underlying: BAutomaton)
         println(fmtTransition(edge))
       }
 
-      println("Merged:")
-      for (edge <- solutionMerged.edges) {
-        println(fmtTransition(edge))
-      }
+      // println("Merged:")
+      // for (edge <- solutionMerged.edges) {
+      //   println(fmtTransition(edge))
+      // }
 
-      for (state <- solutionMerged.allNodes) {
-        println(state2Index(state))
+      // for (state <- solutionMerged.allNodes) {
+      //   println(state2Index(state))
 
-      }
+      // }
 
       // Compute the smallest set of pairs of transition in cycle => one of
       // these transitions must be included for connectivity
@@ -707,10 +707,16 @@ class BricsAutomaton(val underlying: BAutomaton)
         logger.debug(s"causeResolution: ${cycle.map(state2Index(_))}")
 
         // Also merge the cycle into one node
-        val cycleSolutionMerged = solutionMerged.mergeNodes(cycle)
+        val cycleSolutionMerged = solutionMerged.flatMergeNodes(cycle)
+        import cycleSolutionMerged.equivalentNode
 
         val connectingEdges =
-          cycleSolutionMerged.minCut(initialState, cycle.head)
+          cycleSolutionMerged
+            .minCut(
+              initialState,
+              cycle.head
+            )
+            .flatMap { case (_, realEdges, _) => realEdges }
         assert(!connectingEdges.isEmpty, "Found no connecting edges!")
         logger.info(s"Min-cut is ${connectingEdges.map(fmtTransition(_))}")
 
@@ -887,7 +893,9 @@ class BricsAutomaton(val underlying: BAutomaton)
           println(
             s"${transitionVar(included)} > 0" +
               " ==> " +
-              "(" + correction.map(v => s"${transitionVar(v)} > 0").mkString(" || ") + ")"
+              "(" + correction
+              .map(v => s"${transitionVar(v)} > 0")
+              .mkString(" || ") + ")"
           )
         }
         println("END IMPLICATIONS")
