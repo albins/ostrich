@@ -2,7 +2,13 @@ package strsolver
 
 import org.scalatest.FunSuite
 import org.scalatest.Assertions._
-import strsolver.preprop.{Graphable, BFSVisitor, MapGraph, RichGraph, CompositeGraph}
+import strsolver.preprop.{
+  Graphable,
+  BFSVisitor,
+  MapGraph,
+  RichGraph,
+  CompositeGraph
+}
 import strsolver.preprop.MapGraph._
 
 class TestGraphOperations extends FunSuite {
@@ -156,7 +162,7 @@ class TestGraphOperations extends FunSuite {
       (3 -> List(3))
     )
 
-    val gMerged = g.mergeNodes(Set(0,2,3))
+    val gMerged = g.mergeNodes(Set(0, 2, 3))
     import gMerged.equivalentNode
 
     assert(g.minCut(0, 1) == Set((0, (), 1), (0, (), 2)))
@@ -171,11 +177,15 @@ class TestGraphOperations extends FunSuite {
       (3 -> List(3))
     )
 
-    val gMerged = g.mergeNodes(Set(0,2,3))
+    val gMerged = g.mergeNodes(Set(0, 2, 3))
 
     import gMerged.equivalentNode
 
-    assert(gMerged.startBFSFrom(0).pathTo(1).map(_.flatMap(_._2)) == Some(List((2, (), 1))))
+    assert(
+      gMerged.startBFSFrom(0).pathTo(1).map(_.flatMap(_._2)) == Some(
+        List((2, (), 1))
+      )
+    )
   }
 
 }
