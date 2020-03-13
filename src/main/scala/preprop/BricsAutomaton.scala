@@ -657,8 +657,7 @@ class BricsAutomaton(val underlying: BAutomaton)
     Exploration.measure("parikhImage::connectiveTheory") {
       println(solution.map(fmtTransition(_)))
 
-      val solutionGraph =
-        this.dropEdges(this.edges.filter(!solution.contains(_)).to)
+      val solutionGraph = new MapGraph(solution)
 
       println(solutionGraph.edges.map(fmtTransition(_)))
 
