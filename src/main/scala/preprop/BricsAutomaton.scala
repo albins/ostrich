@@ -655,11 +655,8 @@ class BricsAutomaton(val underlying: BAutomaton)
       solution: Set[FromLabelTo]
   ): Option[Map[FromLabelTo, Set[FromLabelTo]]] =
     Exploration.measure("parikhImage::connectiveTheory") {
-      println(solution.map(fmtTransition(_)))
 
       val solutionGraph = new MapGraph(solution)
-
-      println(solutionGraph.edges.map(fmtTransition(_)))
 
       val it = solutionGraph.startBFSFrom(initialState)
       val reachedFromStart = it.to[Set]
@@ -739,32 +736,25 @@ class BricsAutomaton(val underlying: BAutomaton)
 
     }
 
-  def parikhImageNew: Formula = Exploration.measure("parikhImageNew") {
-    import TerForConvenience._
-    // FIXME What does this do?
-    implicit val order = TermOrder.EMPTY.extend(registers.map {
-      case IConstant(c) => c
-    })
-
-    println("# accepting: " + acceptingStates.size)
-    acceptingStates.foldRight(Conjunction.FALSE)(
-      (finalState, currentSolution) =>
-        disjFor(parikhPathToEnd(finalState, currentSolution), currentSolution)
-    )
-  }
 
   // FIXME this method is too long
   // FIXME: this method makes a mess of which variables belong to the solver,
   // and which variables are "ours"
-  def parikhPathToEnd(finalState: State, blockingConstraint: Formula): Formula =
-    Exploration.measure("parikhImagePathToEnd") {
+  def parikhImageNew(): Formula =
+    Exploration.measure("parikhImageNew") {
       import TerForConvenience._
 
       // FIXME use withSolver or whatever it's called
-      val solver = SimpleAPI.spawnWithLog // WithAssertions
+      val solver = SimpleAPI.spawnWithAssertions // WithAssertions
 
       for (IConstant(c) <- registers)
         solver.addConstantRaw(c)
+
+      // Each accepting state gets a variable (used for flow formulations)
+      val acceptingStateVar = acceptingStates
+        .map(t => (t -> solver.createConstant))
+        .toVector
+        .toMap
 
       // Each transition gets a constant
       val transitionVarSeq = transitions
@@ -778,18 +768,15 @@ class BricsAutomaton(val underlying: BAutomaton)
 
       implicit val order = solver.order
 
-      val registerInvMap: Map[ConstantTerm, Term] =
-        registerVar.map { case (IConstant(d), IConstant(c)) => d -> c }.toMap
-
-      solver.addAssertion(
-        Conjunction.negate(
-          ConstantSubst(registerInvMap, order)(blockingConstraint),
-          order
-        )
-      )
-
       // Transition variables are positive
       solver addAssertion (transitionVar.values.toSeq >= 0)
+
+      // We end on one of the accepting states:
+      solver addAssertion (acceptingStateVar.values.toSeq >= 0)
+
+      val acceptingStateEqs = acceptingStateVar.values.reduce(_ + _) === 1
+      println("accepting state equations: " + acceptingStateEqs)
+      solver addAssertion (acceptingStateEqs)
 
       def registerEqTransitions(xi: (ITerm, Int)) = {
         val (x, registerIdx) = xi
@@ -832,9 +819,9 @@ class BricsAutomaton(val underlying: BAutomaton)
       ): Unit = {
         val (state, _) = stateTerms.head
         val stateFlowEq = stateTerms.unzip._2.reduce(_ + _)
-        val extraTerm = (if (state == finalState) 1 else 0) - (if (state == initialState)
-                                                                 1
-                                                               else 0)
+        val acceptTerm: ITerm =
+          if (state.isAccept) acceptingStateVar(state) else 0
+        val extraTerm = acceptTerm - (if (state == initialState) 1 else 0)
         val finalEquation = stateFlowEq +++ extraTerm === 0
         solver.addAssertion(finalEquation)
         flowEquations += finalEquation
@@ -930,22 +917,22 @@ class BricsAutomaton(val underlying: BAutomaton)
       // FIXME make this a stream-generating method that streams out generalised
       // solutions, and ditch the arraybuffer
 
-      // var previousSolution: Option[Any] = None
+      var previousSolution: Option[Any] = None
 
       while (solver.??? == SimpleAPI.ProverStatus.Sat) {
         val flowSolution = solver.partialModel
-        // logger.trace("New flow solution: " + flowSolution)
+        logger.trace("New flow solution: " + flowSolution)
         val selectedEdges = selectEdgesFrom(flowSolution)
-        // logger.trace("selected edges: " + selectedEdges.map(fmtTransition(_)))
-        // previousSolution map (
-        //     x =>
-        //       assert(
-        //         x != selectedEdges,
-        //         s"Selected ${selectedEdges.map(fmtTransition(_))} twice"
-        //       )
-        //   )
+        logger.trace("selected edges: " + selectedEdges.map(fmtTransition(_)))
+        previousSolution map (
+            x =>
+              assert(
+                x != selectedEdges,
+                s"Selected ${selectedEdges.map(fmtTransition(_))} twice"
+              )
+          )
 
-        // previousSolution = Some(selectedEdges)
+        previousSolution = Some(selectedEdges)
 
         val blockedClause = connectiveTheory(selectedEdges) match {
           case Some(implications) => {
@@ -958,7 +945,8 @@ class BricsAutomaton(val underlying: BAutomaton)
             val matrix =
               edgesToConjunctionI(selectedEdges) &&&
                 registerEqs &&&
-                IExpression.and(flowEquations)
+                IExpression.and(flowEquations) &&&
+                acceptingStateEqs
 
             val elimSol =
               qeSolver.projectEx(matrix, registerVar.values)
@@ -968,7 +956,7 @@ class BricsAutomaton(val underlying: BAutomaton)
           }
         }
 
-        // logger.debug("Blocking clause:" + blockedClause)
+        logger.debug("Blocking clause:" + blockedClause)
         solver.addAssertion(blockedClause)
       }
 
@@ -977,6 +965,8 @@ class BricsAutomaton(val underlying: BAutomaton)
 
       val registerMap: Map[ConstantTerm, Term] =
         registerVar.map { case (IConstant(c), IConstant(d)) => d -> c }.toMap
+
+      logger.debug("Raw image: " + image)
 
       logger.debug(
         "Generated path expression: " + ConstantSubst(registerMap, order)(
