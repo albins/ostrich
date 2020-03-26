@@ -28,7 +28,7 @@ import ap.terfor._
 import ap.terfor.linearcombination.LinearCombination
 import ap.terfor.conjunctions.Conjunction
 import ap.util.Seqs
-import strsolver.{Flags, IntConstraintStore}
+import strsolver.{Flags, IntConstraintStore, ParikhTheory}
 
 import scala.collection.{breakOut, mutable}
 import scala.collection.mutable.{
@@ -770,8 +770,12 @@ abstract class Exploration(
             }
 
           for ((_, autQueue) <- autQueuesPerTerm)
-            for (aut <- autQueue)
-              addAssertion(order sort aut.parikhImage)
+            for (aut <- autQueue) {
+              // addAssertion(order sort aut.parikhImage)
+              addAssertion(
+                (new ParikhTheory(aut)) allowsRegisterValues (aut.registers)
+              )
+            }
 
           val globalQueue = new PriorityQueue[PriorityQueue[BricsAutomaton]]
           for ((_, autQueue) <- autQueuesPerTerm)
