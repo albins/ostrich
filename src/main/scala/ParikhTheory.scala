@@ -12,7 +12,7 @@ import strsolver.preprop.EdgeWrapper._
 class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
   import IExpression.Predicate
 
-  def trace[T](message: String)(something: T): T = {
+  private def trace[T](message: String)(something: T): T = {
     println(s"trace::${message}(${something})")
     something
   }
@@ -32,7 +32,7 @@ class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
     implicit val newOrder = order
 
     def asManyIncomingAsOutgoing(
-        transitionVars: Seq[LinearCombination]
+        transitionAndVar: Seq[(aut.FromLabelTo, LinearCombination)]
     ): Formula = {
       def asStateFlowSum(
           stateTerms: Seq[(aut.State, (IdealInt, LinearCombination))]
@@ -47,8 +47,7 @@ class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
 
       trace("Flow equations") {
         conj(
-          aut.transitions
-            .zip(transitionVars.iterator)
+          transitionAndVar
             .filter(!_._1.isSelfEdge)
             .map {
               case ((from, _, to), transitionVar) =>
@@ -68,47 +67,41 @@ class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
             }
         )
       }
-      // val (acceptingTransitionSums, nonAcceptingTransitionSums) = {
-      //   // FIXME This tuple unpacking is...not elegant
-      //   val (accept, nonAccept) = transitionSumsByState.partition(_._1.isAccept)
-      //   (accept.unzip._2, nonAccept.unzip._2)
-      // }
-
-      // // This expresses the constraint that at any transitions in and out from a
-      // // non-accepting state are balanced (as many incoming as outgoing
-      // // transitions).
-      // val nonAcceptingTransitionsBalanced = conj(
-      //   nonAcceptingTransitionSums.map(_ === 0)
-      // )
-
-      // // This expresses that the transitions in and out of the accepting states
-      // // allow ending up on precisely one accepting state.
-      // // val acceptingTransitionsBalanced = sum(
-      // //   Stream.continually(IdealInt.ONE) zip acceptingTransitionSums
-      // // ) === 1
-      // val acceptingTransitionsBalanced = conj(
-      //   acceptingTransitionSums.map(_ >= 0)
-      // )
-
-      // // This propagates a lower bound on the sums that ensures we do not have
-      // // "negative" paths.
-      // val acceptingTransitionsNotNegative = conj(
-      //   acceptingTransitionSums.map(_ >= 0)
-      // )
-
-      // trace("Flow equations") {
-      //   conj(
-      //     nonAcceptingTransitionsBalanced,
-      //     acceptingTransitionsBalanced,
-      //     acceptingTransitionsNotNegative
-      //   )
-      // }
     }
 
-    Theory.rewritePreds(f, order) { (atom, negated) =>
+    def registerValuesReachable(
+        registerVars: Seq[LinearCombination],
+        transitionAndVar: Seq[(aut.FromLabelTo, LinearCombination)]
+    ): Formula = {
+      trace("Register equations") {
+        conj(registerVars.zipWithIndex.map {
+          case (rVar, rIdx) =>
+            rVar === sum(transitionAndVar.map {
+              case (t, tVar) =>
+                (IdealInt.int2idealInt(aut.etaMap(t)(rIdx)), tVar)
+            })
+        })
+
+      }
+    }
+
+    def allNonnegative(vars: Seq[LinearCombination]) = {
+      conj(vars.map(_ >= 0))
+    }
+
+    Theory.rewritePreds(f, order) { (atom, _) =>
       if (atom.pred == this.predicate) {
+        val (transitionVars, registerVars) = atom.splitAt(aut.transitions.size)
+        val transitionAndVar = aut.transitions.zip(transitionVars.iterator).to
+
         Conjunction.conj(
-          List(atom, asManyIncomingAsOutgoing(atom.to[Seq])),
+          List(
+            atom,
+            asManyIncomingAsOutgoing(transitionAndVar),
+            allNonnegative(transitionVars),
+            allNonnegative(registerVars),
+            registerValuesReachable(registerVars, transitionAndVar)
+          ),
           order
         )
       } else atom
