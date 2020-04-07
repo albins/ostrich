@@ -41,7 +41,6 @@ class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
         val isInitial =
           (if (state == aut.initialState) LinearCombination.ONE
            else LinearCombination.ZERO)
-
         (state, sum(stateTerms.unzip._2 ++ List((IdealInt.ONE, isInitial))))
       }
 
@@ -52,8 +51,8 @@ class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
             .map {
               case ((from, _, to), transitionVar) =>
                 List(
-                  (to, (IdealInt.MINUS_ONE, transitionVar)),
-                  (from, (IdealInt.ONE, transitionVar))
+                  (to, (IdealInt.ONE, transitionVar)),
+                  (from, (IdealInt.MINUS_ONE, transitionVar))
                 )
             }
             .flatten

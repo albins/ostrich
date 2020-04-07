@@ -54,10 +54,10 @@ class TestParikhImage extends FunSuite {
     val builder = new BricsAutomatonBuilder
     val states = (0 to 3)
       .map(_ => {
-        val s = builder.getNewState;
-        builder.setAccept(s, true);
-        s
-      })
+             val s = builder.getNewState;
+             builder.setAccept(s, true);
+             s
+           })
       .to[Array]
 
     builder.setInitialState(states(0))
