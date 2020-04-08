@@ -24,9 +24,9 @@ class TestParikhTheory extends FunSuite {
       import p._
 
       val registerVars = aut.registers.zip(allowedRegisterValues).map {
-        case (IConstant(c), allowedValues) => {
-          addConstantRaw(c)
-          allowedValues.foreach(v => addAssertion (c != v))
+        case (_, allowedValues) => {
+          val c = createConstant
+          allowedValues.foreach(v => addAssertion (c =/= v))
           c
         }
       }

@@ -22,6 +22,15 @@ class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
   private val predicate =
     new Predicate("pa", aut.edges.size + aut.registers.size)
 
+  override def isSoundForSat(
+      theories: Seq[Theory],
+      config: Theory.SatSoundnessConfig.Value
+  ): Boolean =
+    Set(
+      Theory.SatSoundnessConfig.Elementary,
+      Theory.SatSoundnessConfig.Existential
+    ) contains config
+
   // TODO
   // när vi ser ett predikat, ersätt med flow /\ sig själv igen
   // register -> flow equations
@@ -84,9 +93,7 @@ class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
       }
     }
 
-    def allNonnegative(vars: Seq[LinearCombination]) = {
-      conj(vars.map(_ >= 0))
-    }
+    def allNonnegative(vars: Seq[LinearCombination]) = conj(vars.map(_ >= 0))
 
     Theory.rewritePreds(f, order) { (atom, _) =>
       if (atom.pred == this.predicate) {
