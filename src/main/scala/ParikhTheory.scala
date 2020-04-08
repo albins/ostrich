@@ -56,19 +56,17 @@ class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
       trace("Flow equations") {
         conj(
           transitionAndVar
-            .filter(!_._1.isSelfEdge)
-            .map {
-              case ((from, _, to), transitionVar) =>
-                List(
-                  (to, (IdealInt.ONE, transitionVar)),
-                  (from, (IdealInt.MINUS_ONE, transitionVar))
-                )
-            }
-            .flatten
+            .filter(!_._1.isSelfEdge).flatMap {
+            case ((from, _, to), transitionVar) =>
+              List(
+                (to, (IdealInt.ONE, transitionVar)),
+                (from, (IdealInt.MINUS_ONE, transitionVar))
+              )
+          }
             .to
             .groupBy(_._1)
             .values
-            .map(asStateFlowSum _)
+            .map(asStateFlowSum)
             .map {
               case (state, flowSum) =>
                 if (state.isAccept) flowSum >= 0 else flowSum === 0
@@ -137,7 +135,7 @@ class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
   def allowsRegisterValues(registerValues: Seq[ITerm]): IFormula = {
     import IExpression._
     val transitionTermSorts = List.fill(aut.edges.size)(Sort.Integer) //
-    val transitionTerms = (0 until aut.edges.size).map(v)
+    val transitionTerms = aut.edges.indices.map(v)
     ex(
       transitionTermSorts,
       this.predicate(transitionTerms ++ registerValues: _*)
