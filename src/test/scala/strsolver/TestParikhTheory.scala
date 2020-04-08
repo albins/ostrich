@@ -74,7 +74,7 @@ class TestParikhTheory extends FunSuite {
       a
     }
 
-    println(automaton.toDot)
+    // println(automaton.toDot)
     println(automaton.transitions.map{case(from, _, to) =>
               (stateIndex(from), stateIndex(to))}.to[Seq])
     verifyRegisterValues(automaton, List(List(2, 3, 7)))
