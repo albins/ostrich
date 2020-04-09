@@ -609,41 +609,41 @@ class BricsAutomaton(val underlying: BAutomaton)
 
     val simpAut = this.makeLabelsUniform.minimize
     val newImage = simpAut.parikhImageNew
-    val oldImage = simpAut.parikhImageOld
+    // val oldImage = simpAut.parikhImageOld
 
-    SimpleAPI.withProver { p =>
-      import p._
-      registers foreach {
-        case IConstant(c) => addConstantRaw(c)
-      }
-      implicit val o = order
-      val reduced =
-        PresburgerTools.elimQuantifiersWithPreds(Conjunction.conj(oldImage, o))
+    // SimpleAPI.withProver { p =>
+    //   import p._
+    //   registers foreach {
+    //     case IConstant(c) => addConstantRaw(c)
+    //   }
+    //   implicit val o = order
+    //   val reduced =
+    //     PresburgerTools.elimQuantifiersWithPreds(Conjunction.conj(oldImage, o))
 
-      addConclusion(
-        Conjunction.conj(newImage, o) <=>
-          Conjunction.conj(reduced, o)
-      )
-      if (??? != SimpleAPI.ProverStatus.Valid) {
-        println(
-          s"simplified new image: ${pp(simplify(asIFormula(Conjunction.conj(newImage, o))))}"
-        )
-        println(s"simplified old image: ${pp(simplify(asIFormula(reduced)))}")
-        println(s"Countermodel: ${partialModel}")
+    //   addConclusion(
+    //     Conjunction.conj(newImage, o) <=>
+    //       Conjunction.conj(reduced, o)
+    //   )
+    //   if (??? != SimpleAPI.ProverStatus.Valid) {
+    //     println(
+    //       s"simplified new image: ${pp(simplify(asIFormula(Conjunction.conj(newImage, o))))}"
+    //     )
+    //     println(s"simplified old image: ${pp(simplify(asIFormula(reduced)))}")
+    //     println(s"Countermodel: ${partialModel}")
 
-        println("Automata:")
-        println(this.toString)
+    //     println("Automata:")
+    //     println(this.toString)
 
-        import java.io._
-        val file = new File("problem-automata.dot")
-        val bw = new BufferedWriter(new FileWriter(file))
-        bw.write(this.toDot)
-        bw.flush()
-        assert(false)
-      }
+    //     import java.io._
+    //     val file = new File("problem-automata.dot")
+    //     val bw = new BufferedWriter(new FileWriter(file))
+    //     bw.write(this.toDot)
+    //     bw.flush()
+    //     assert(false)
+    //   }
 
-    }
-    logger.info("Both images were equivalent!")
+    // }
+    // logger.info("Both images were equivalent!")
     newImage
   }
 
@@ -736,7 +736,6 @@ class BricsAutomaton(val underlying: BAutomaton)
 
     }
 
-
   // FIXME this method is too long
   // FIXME: this method makes a mess of which variables belong to the solver,
   // and which variables are "ours"
@@ -745,7 +744,9 @@ class BricsAutomaton(val underlying: BAutomaton)
       import TerForConvenience._
 
       // FIXME use withSolver or whatever it's called
-      val solver = SimpleAPI.spawnWithAssertions // WithAssertions
+      val solver = SimpleAPI.spawn
+
+      solver.setConstructProofs(true)
 
       for (IConstant(c) <- registers)
         solver.addConstantRaw(c)
@@ -919,49 +920,51 @@ class BricsAutomaton(val underlying: BAutomaton)
 
       var previousSolution: Option[Any] = None
 
-      while (solver.??? == SimpleAPI.ProverStatus.Sat) {
-        val flowSolution = solver.partialModel
-        logger.trace("New flow solution: " + flowSolution)
-        val selectedEdges = selectEdgesFrom(flowSolution)
-        logger.trace("selected edges: " + selectedEdges.map(fmtTransition(_)))
-        previousSolution map (
-            x =>
-              assert(
-                x != selectedEdges,
-                s"Selected ${selectedEdges.map(fmtTransition(_))} twice"
-              )
-          )
+      Exploration.measure("parikhImage::wait-for-solver") {
+        while (solver.??? == SimpleAPI.ProverStatus.Sat) {
+          val flowSolution = solver.partialModel
+          logger.trace("New flow solution: " + flowSolution)
+          val selectedEdges = selectEdgesFrom(flowSolution)
+          logger.info("selected edges: " + selectedEdges.map(fmtTransition(_)))
+          previousSolution map (
+              x =>
+                assert(
+                  x != selectedEdges,
+                  s"Selected ${selectedEdges.map(fmtTransition(_))} twice"
+                )
+            )
 
-        previousSolution = Some(selectedEdges)
+          previousSolution = Some(selectedEdges)
 
-        val blockedClause = connectiveTheory(selectedEdges) match {
-          case Some(implications) => {
-            // logger.debug("Disconnected!")
-            implicationsToBlockingClause(implications)
+          val blockedClause = connectiveTheory(selectedEdges) match {
+            case Some(implications) => {
+              // logger.debug("Disconnected!")
+              implicationsToBlockingClause(implications)
+            }
+
+            case None => {
+
+              val matrix =
+                edgesToConjunctionI(selectedEdges) &&&
+                  registerEqs &&&
+                  IExpression.and(flowEquations) &&&
+                  acceptingStateEqs
+
+              val elimSol =
+                qeSolver.projectEx(matrix, registerVar.values)
+
+              image += solver.asConjunction(elimSol)
+              ~elimSol
+            }
           }
 
-          case None => {
-
-            val matrix =
-              edgesToConjunctionI(selectedEdges) &&&
-                registerEqs &&&
-                IExpression.and(flowEquations) &&&
-                acceptingStateEqs
-
-            val elimSol =
-              qeSolver.projectEx(matrix, registerVar.values)
-
-            image += solver.asConjunction(elimSol)
-            ~elimSol
-          }
+          logger.debug("Blocking clause:" + blockedClause)
+          solver.addAssertion(blockedClause)
         }
 
-        logger.debug("Blocking clause:" + blockedClause)
-        solver.addAssertion(blockedClause)
+        solver.shutDown
+        qeSolver.shutDown
       }
-
-      solver.shutDown
-      qeSolver.shutDown
 
       val registerMap: Map[ConstantTerm, Term] =
         registerVar.map { case (IConstant(c), IConstant(d)) => d -> c }.toMap
@@ -1168,7 +1171,7 @@ class BricsAutomaton(val underlying: BAutomaton)
                 // length abstraction
                 PresburgerTools.elimQuantifiersWithPreds(rawConstraint)
               } {
-                ReduceWithConjunction(Conjunction.TRUE, order)(rawConstraint)
+             ReduceWithConjunction(Conjunction.TRUE, order)(rawConstraint)
               }*/
 
             rawConstraint

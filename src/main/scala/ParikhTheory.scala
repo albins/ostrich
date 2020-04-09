@@ -8,20 +8,31 @@ import ap.terfor.{TermOrder, Term, Formula}
 import ap.terfor.TerForConvenience._
 import ap.terfor.linearcombination.LinearCombination
 import strsolver.preprop.EdgeWrapper._
+import ap.proof.theoryPlugins.{Plugin}
+import ap.proof.goal.Goal
 
-class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
-  import IExpression.Predicate
+trait NoFunctions {
+  val functionPredicateMapping
+      : Seq[(ap.parser.IFunction, ap.parser.IExpression.Predicate)] = List()
+  val functionalPredicates: Set[ap.parser.IExpression.Predicate] = Set()
+  val functions: Seq[ap.parser.IFunction] = List()
+  val predicateMatchConfig: ap.Signature.PredicateMatchConfig = Map()
+  val triggerRelevantFunctions: Set[ap.parser.IFunction] = Set()
+}
 
-  private def trace[T](message: String)(something: T): T = {
+trait NoAxioms {
+  val axioms: Formula = Conjunction.TRUE
+  val totalityAxioms: ap.terfor.Formula = Conjunction.TRUE
+}
+
+trait Tracing {
+  protected def trace[T](message: String)(something: T): T = {
     println(s"trace::${message}(${something})")
     something
   }
+}
 
-  // FIXME: total deterministisk ordning på edges!
-  // FIXME: name the predicate!
-  private val predicate =
-    new Predicate("pa", aut.edges.size + aut.registers.size)
-
+trait Complete extends Theory {
   override def isSoundForSat(
       theories: Seq[Theory],
       config: Theory.SatSoundnessConfig.Value
@@ -31,13 +42,24 @@ class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
       Theory.SatSoundnessConfig.Existential
     ) contains config
 
-  // TODO
-  // när vi ser ett predikat, ersätt med flow /\ sig själv igen
-  // register -> flow equations
-  // domänvillkor
+}
+
+class ParikhTheory(private val aut: BricsAutomaton)
+    extends Theory
+    with NoFunctions
+    with NoAxioms
+    with Tracing
+    with Complete {
+  import IExpression.Predicate
+
+  // FIXME: total deterministisk ordning på edges!
+  // FIXME: name the predicate!
+  private val predicate =
+    new Predicate(s"pa-${aut.hashCode}", aut.edges.size + aut.registers.size)
+
+  val predicates: Seq[ap.parser.IExpression.Predicate] = List(predicate)
+
   override def preprocess(f: Conjunction, order: TermOrder): Conjunction = {
-    // val acceptingStatesArePositive = acceptingStateVar.values.toSeq >= 0
-    // val oneAcceptingStateUsed = acceptingStateVar.values.reduce(_ + _) === 1
     implicit val newOrder = order
 
     def asManyIncomingAsOutgoing(
@@ -56,13 +78,14 @@ class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
       trace("Flow equations") {
         conj(
           transitionAndVar
-            .filter(!_._1.isSelfEdge).flatMap {
-            case ((from, _, to), transitionVar) =>
-              List(
-                (to, (IdealInt.ONE, transitionVar)),
-                (from, (IdealInt.MINUS_ONE, transitionVar))
-              )
-          }
+            .filter(!_._1.isSelfEdge)
+            .flatMap {
+              case ((from, _, to), transitionVar) =>
+                List(
+                  (to, (IdealInt.ONE, transitionVar)),
+                  (from, (IdealInt.MINUS_ONE, transitionVar))
+                )
+            }
             .to
             .groupBy(_._1)
             .values
@@ -112,20 +135,27 @@ class ParikhTheory(private val aut: BricsAutomaton) extends Theory {
     }
   }
 
-  // BEGIN USELESS BOILERPLATE
-  val axioms: Formula = Conjunction.TRUE
-  val functionPredicateMapping
-      : Seq[(ap.parser.IFunction, ap.parser.IExpression.Predicate)] = List()
-  val functionalPredicates: Set[ap.parser.IExpression.Predicate] = Set()
-  val functions: Seq[ap.parser.IFunction] = List()
-  val predicateMatchConfig: ap.Signature.PredicateMatchConfig = Map()
-  val predicates: Seq[ap.parser.IExpression.Predicate] = List(predicate)
-  val totalityAxioms: ap.terfor.Formula = Conjunction.TRUE
-  val triggerRelevantFunctions: Set[ap.parser.IFunction] = Set()
-  // END USELESS BOILERPLATE
+  def plugin: Option[Plugin] =
+    Some(new Plugin {
+      def generateAxioms(goal: Goal) = None
+      override def handleGoal(goal: Goal) = {
+        goal.facts.predConj.positiveLitsWithPred(predicate).flatMap {
+          predicateAtom =>
+            {
 
-  // TODO propagator för connectedness
-  def plugin: Option[ap.proof.theoryPlugins.Plugin] = None
+              // TODO analyse atoms, return the formuli that propagates zeroes
+
+              // TODO check if we are subsumed; then generate a
+              // Plugin.RemoveFacts with the generated atoms
+
+              // TODO splitting; split on different paths through the automaton
+              Seq()
+            }
+        }
+
+      }
+
+    })
 
   /**
     * Generate a quantified formula that is satisfiable iff the provided
