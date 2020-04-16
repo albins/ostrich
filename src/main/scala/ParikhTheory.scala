@@ -44,7 +44,7 @@ trait Complete extends Theory {
 
 }
 
-class ParikhTheory(private val aut: BricsAutomaton)
+class ParikhTheory(private[this] val aut: BricsAutomaton)
     extends Theory
     with NoFunctions
     with NoAxioms
