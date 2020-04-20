@@ -1,24 +1,16 @@
 package strsolver
 
-import org.scalatest.FunSuite
-import org.scalatest.Assertions._
-import strsolver.preprop.{BricsAutomaton, BricsAutomatonBuilder}
-import ap.terfor.{Formula}
 import ap.parser.ITerm
+import org.scalatest.FunSuite
+import strsolver.preprop.{BricsAutomaton, BricsAutomatonBuilder}
 
 class TestParikhTheory extends FunSuite {
 
-  private def expectUnsatRegisterConstraints(aut: BricsAutomaton, comment: String = "")(constraintGenerator: (Seq[ITerm], ap.SimpleAPI) => Unit) {
-    import ap.PresburgerTools
+  private def expectUnsatRegisterConstraints(
+      aut: BricsAutomaton,
+      comment: String = ""
+  )(constraintGenerator: (Seq[ITerm], ap.SimpleAPI) => Unit) {
     import ap.SimpleAPI
-    import ap.parser.{
-      IConstant,
-      InputAbsy2Internal,
-      Internal2InputAbsy,
-      IExpression,
-      IFormula
-    }
-    import ap.terfor.conjunctions.{Conjunction, ReduceWithConjunction}
 
     SimpleAPI.withProver { p =>
       import p._
@@ -35,11 +27,9 @@ class TestParikhTheory extends FunSuite {
 
     }
 
-
   }
 
   private val allChars: (Char, Char) = (0, 65535)
-
 
   //              R1  += 3
   //       +--------------------------------+
@@ -51,10 +41,10 @@ class TestParikhTheory extends FunSuite {
     val builder = new BricsAutomatonBuilder
     val states = (0 to 2)
       .map(i => {
-             val s = builder.getNewState;
-             if (i != 0) builder.setAccept(s, true);
-             s
-           })
+        val s = builder.getNewState;
+        if (i != 0) builder.setAccept(s, true);
+        s
+      })
       .to[Array]
 
     val stateIndex = states.zipWithIndex.toMap
@@ -73,8 +63,14 @@ class TestParikhTheory extends FunSuite {
     }
 
     // println(automaton.toDot)
-    println(automaton.transitions.map{case(from, _, to) =>
-              (stateIndex(from), stateIndex(to))}.to[Seq])
+    println(
+      automaton.transitions
+        .map {
+          case (from, _, to) =>
+            (stateIndex(from), stateIndex(to))
+        }
+        .to[Seq]
+    )
 
     expectUnsatRegisterConstraints(automaton) {
       case (registers, p) =>
@@ -83,7 +79,6 @@ class TestParikhTheory extends FunSuite {
     }
 
   }
-
 
   //              #3
   //         +---------+
@@ -100,7 +95,9 @@ class TestParikhTheory extends FunSuite {
   //       |   ^
   //       +---+
   //         #6
-  test("4-state, per-transition register automaton with loop has correct values") {
+  test(
+    "4-state, per-transition register automaton with loop has correct values"
+  ) {
     val builder = new BricsAutomatonBuilder
     val states = (0 to 3).map(_ => builder.getNewState).to[Array]
     val stateIndex = states.zipWithIndex.toMap
@@ -108,16 +105,51 @@ class TestParikhTheory extends FunSuite {
     builder.setAccept(states(3), true)
     builder.setInitialState(states(0))
 
-    builder.addTransition(states(0), allChars, states(1), List(1, 0, 0, 0, 0, 0, 0))
-    builder.addTransition(states(0), allChars, states(2), List(0, 1, 0, 0, 0, 0, 0))
+    builder.addTransition(
+      states(0),
+      allChars,
+      states(1),
+      List(1, 0, 0, 0, 0, 0, 0)
+    )
+    builder.addTransition(
+      states(0),
+      allChars,
+      states(2),
+      List(0, 1, 0, 0, 0, 0, 0)
+    )
 
-    builder.addTransition(states(1), allChars, states(3), List(0, 0, 1, 0, 0, 0, 0))
-    builder.addTransition(states(1), allChars, states(0), List(0, 0, 0, 1, 0, 0, 0))
+    builder.addTransition(
+      states(1),
+      allChars,
+      states(3),
+      List(0, 0, 1, 0, 0, 0, 0)
+    )
+    builder.addTransition(
+      states(1),
+      allChars,
+      states(0),
+      List(0, 0, 0, 1, 0, 0, 0)
+    )
 
-    builder.addTransition(states(2), allChars, states(3), List(0, 0, 0, 0, 1, 0, 0))
-    builder.addTransition(states(2), allChars, states(2), List(0, 0, 0, 0, 0, 0, 1))
+    builder.addTransition(
+      states(2),
+      allChars,
+      states(3),
+      List(0, 0, 0, 0, 1, 0, 0)
+    )
+    builder.addTransition(
+      states(2),
+      allChars,
+      states(2),
+      List(0, 0, 0, 0, 0, 0, 1)
+    )
 
-    builder.addTransition(states(3), allChars, states(2), List(0, 0, 0, 0, 0, 1, 0))
+    builder.addTransition(
+      states(3),
+      allChars,
+      states(2),
+      List(0, 0, 0, 0, 0, 1, 0)
+    )
 
     val aut = {
       val a = builder.getAutomaton
@@ -127,17 +159,23 @@ class TestParikhTheory extends FunSuite {
     }
 
     // println(automaton.toDot)
-    println(aut.transitions.map{case(from, _, to) =>
-              (stateIndex(from), stateIndex(to))}.to[Seq])
+    println(
+      aut.transitions
+        .map {
+          case (from, _, to) =>
+            (stateIndex(from), stateIndex(to))
+        }
+        .to[Seq]
+    )
 
     expectUnsatRegisterConstraints(aut, "#3 >= 1 & #0 < 1") {
-      case (r, p) => p.addAssertion((r(3) >= 1) &&& (r(0) ===  0))
+      case (r, p) => p.addAssertion((r(3) >= 1) &&& (r(0) === 0))
     }
 
     expectUnsatRegisterConstraints(aut, "#6 disconnected") {
-      case (r, p) => p.addAssertion((r(6) >= 1) &&& (r(5) === 0) &&& (r(1) === 0))
+      case (r, p) =>
+        p.addAssertion((r(6) >= 1) &&& (r(5) === 0) &&& (r(1) === 0))
     }
-
 
   }
 

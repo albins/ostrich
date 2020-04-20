@@ -1,15 +1,15 @@
 package strsolver
-import ap.theories._
-import ap.parser._
 import ap.basetypes.IdealInt
-import preprop.BricsAutomaton
-import ap.terfor.conjunctions.Conjunction
-import ap.terfor.{TermOrder, Term, Formula}
-import ap.terfor.TerForConvenience._
-import ap.terfor.linearcombination.LinearCombination
-import strsolver.preprop.EdgeWrapper._
-import ap.proof.theoryPlugins.{Plugin}
+import ap.parser._
 import ap.proof.goal.Goal
+import ap.proof.theoryPlugins.Plugin
+import ap.terfor.TerForConvenience._
+import ap.terfor.conjunctions.Conjunction
+import ap.terfor.linearcombination.LinearCombination
+import ap.terfor.{Formula, TermOrder}
+import ap.theories._
+import strsolver.preprop.BricsAutomaton
+import strsolver.preprop.EdgeWrapper._
 
 trait NoFunctions {
   val functionPredicateMapping

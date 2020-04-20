@@ -18,25 +18,12 @@
 
 package strsolver.preprop
 
-import java.io.{FileWriter, PrintWriter}
-
-import strsolver.Regex2AFA
-import com.typesafe.scalalogging.LazyLogging
 import ap.SimpleAPI
-import ap.terfor.{Term, ConstantTerm}
+import ap.parser._
 import ap.terfor.preds.PredConj
 import ap.terfor.substitutions.ConstantSubst
-import ap.parser.{
-  IConstant,
-  ITerm,
-  InputAbsy2Internal,
-  Internal2InputAbsy,
-  IExpression,
-  IFormula
-}
-
-import strsolver.preprop.MapGraph._
-
+import ap.terfor.{ConstantTerm, Term}
+import com.typesafe.scalalogging.LazyLogging
 import dk.brics.automaton.{
   BasicAutomata,
   BasicOperations,
@@ -45,28 +32,25 @@ import dk.brics.automaton.{
   Automaton => BAutomaton,
   State => BState
 }
+import strsolver.Regex2AFA
 
 import scala.collection.JavaConversions.{
   asScalaIterator,
   iterableAsScalaIterable
 }
+import scala.collection.JavaConverters._
+import scala.collection.immutable.List
 import scala.collection.mutable.{
   ArrayBuffer,
+  BitSet,
   HashMap => MHashMap,
   HashSet => MHashSet,
   LinkedHashSet => MLinkedHashSet,
   MultiMap => MMultiMap,
   Set => MSet,
-  Map => MMap,
   Stack => MStack,
-  TreeSet => MTreeSet,
-  BitSet
+  TreeSet => MTreeSet
 }
-import scala.collection.immutable.List
-import java.util.{List => JList}
-
-import scala.collection.JavaConverters._
-
 import scala.language.postfixOps
 
 object BricsAutomaton {
@@ -546,25 +530,11 @@ class BricsAutomaton(val underlying: BAutomaton)
   /**
     * get parikh iamge of BricsAutomaton
     */
-  import ap.terfor.{
-    Formula,
-    Term,
-    TerForConvenience,
-    TermOrder,
-    OneTerm,
-    VariableTerm
-  }
-  import scala.collection.mutable.{
-    BitSet => MBitSet,
-    HashMap => MHashMap,
-    HashSet => MHashSet,
-    ArrayStack
-  }
-  import ap.terfor.linearcombination.LinearCombination
-  import ap.terfor.conjunctions.{Conjunction, ReduceWithConjunction}
   import ap.basetypes.IdealInt
-  import ap.PresburgerTools
-  import scala.annotation.tailrec
+  import ap.terfor.linearcombination.LinearCombination
+  import ap.terfor._
+
+  import scala.collection.mutable.{BitSet => MBitSet, HashMap => MHashMap}
 
   type FromLabelTo = (State, TLabel, State)
 

@@ -1,18 +1,19 @@
 package strsolver.preprop
 
+import com.typesafe.scalalogging.LazyLogging
+import strsolver.preprop.EdgeWrapper._
+import strsolver.preprop.PathWrapper._
+
+import scala.annotation.tailrec
 import scala.collection.mutable.{
   ArrayBuffer,
-  Set => MSet,
-  Stack => MStack,
+  HashMap => MHashMap,
   Queue => MQueue,
-  HashMap => MHashMap
+  Set => MSet,
+  Stack => MStack
 }
 import scala.language.implicitConversions
 import scala.math.min
-import scala.annotation.tailrec
-import com.typesafe.scalalogging.LazyLogging
-import EdgeWrapper._
-import PathWrapper._
 
 class BFSVisitor[N, L](val graph: RichGraph[N, L], val startNode: N)
     extends Iterator[N] {
