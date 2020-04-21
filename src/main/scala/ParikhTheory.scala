@@ -175,7 +175,7 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
 
               // TODO splitting; split on different paths through the automaton
 
-              Seq(Plugin.AddFormula(unreachableConstraints))
+              Seq(Plugin.AddFormula(!unreachableConstraints))
             }
         }
 
