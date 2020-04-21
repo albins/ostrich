@@ -138,18 +138,42 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
   def plugin: Option[Plugin] =
     Some(new Plugin {
       def generateAxioms(goal: Goal) = None
-      override def handleGoal(goal: Goal) = {
+      override def handleGoal(goal: Goal): Seq[Plugin.Action] = {
         goal.facts.predConj.positiveLitsWithPred(predicate).flatMap {
           predicateAtom =>
             {
+              implicit val _ = goal.order
 
-              // TODO analyse atoms, return the formuli that propagates zeroes
+              val transitionTerms = trace("transitionTerms") {
+                predicateAtom.take(aut.transitions.size)
+              }
+
+              val transitionToTerm =
+                aut.transitions.to.zip(transitionTerms).toMap
+
+              val deadTransitions = transitionToTerm
+                .filter {
+                  case (_, LinearCombination.Constant(x)) if x <= 0 => true
+                  case _                                            => false
+                }
+                .keys
+                .to[Set]
+
+              val unreachableTransitions = aut
+                .dropEdges(deadTransitions)
+                .unreachableFrom(aut.initialState)
+                .flatMap(aut.transitionsFrom(_))
+
+              val unreachableConstraints = trace("unreachableConstraints") {
+                conj(unreachableTransitions.map(transitionToTerm(_) === 0))
+              }
 
               // TODO check if we are subsumed; then generate a
               // Plugin.RemoveFacts with the generated atoms
 
               // TODO splitting; split on different paths through the automaton
-              Seq()
+
+              Seq(Plugin.AddFormula(unreachableConstraints))
             }
         }
 
