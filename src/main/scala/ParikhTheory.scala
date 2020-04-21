@@ -159,13 +159,15 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
                 .keys
                 .to[Set]
 
-              val unreachableTransitions = aut
-                .dropEdges(deadTransitions)
-                .unreachableFrom(aut.initialState)
-                .flatMap(aut.transitionsFrom(_))
-
               val unreachableConstraints = trace("unreachableConstraints") {
-                conj(unreachableTransitions.map(transitionToTerm(_) === 0))
+                conj(
+                  aut
+                    .dropEdges(deadTransitions)
+                    .unreachableFrom(aut.initialState)
+                    .flatMap(
+                      aut.transitionsFrom(_).map(transitionToTerm(_) === 0)
+                    )
+                )
               }
 
               // TODO check if we are subsumed; then generate a
