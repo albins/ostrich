@@ -18,10 +18,13 @@
 
 package strsolver.preprop
 
-import ap.SimpleAPI
+import ap.{
+  SimpleAPI, PresburgerTools
+}
 import ap.parser._
 import ap.terfor.preds.PredConj
 import ap.terfor.substitutions.ConstantSubst
+import ap.terfor.conjunctions.Conjunction
 import ap.terfor.{ConstantTerm, Term}
 import com.typesafe.scalalogging.LazyLogging
 import dk.brics.automaton.{
@@ -33,6 +36,7 @@ import dk.brics.automaton.{
   State => BState
 }
 import strsolver.Regex2AFA
+import strsolver.ParikhTheory
 
 import scala.collection.JavaConversions.{
   asScalaIterator,
@@ -578,42 +582,42 @@ class BricsAutomaton(val underlying: BAutomaton)
   override def parikhImage: Formula = {
 
     val simpAut = this.makeLabelsUniform.minimize
-    val newImage = simpAut.parikhImageNew
-    // val oldImage = simpAut.parikhImageOld
+    val newImage = simpAut.parikhImageUsingTheory
+    val oldImage = simpAut.parikhImageNew
 
-    // SimpleAPI.withProver { p =>
-    //   import p._
-    //   registers foreach {
-    //     case IConstant(c) => addConstantRaw(c)
-    //   }
-    //   implicit val o = order
-    //   val reduced =
-    //     PresburgerTools.elimQuantifiersWithPreds(Conjunction.conj(oldImage, o))
+    SimpleAPI.withProver { p =>
+      import p._
+      registers foreach {
+        case IConstant(c) => addConstantRaw(c)
+      }
+      implicit val o = order
+      val reduced =
+        PresburgerTools.elimQuantifiersWithPreds(Conjunction.conj(oldImage, o))
 
-    //   addConclusion(
-    //     Conjunction.conj(newImage, o) <=>
-    //       Conjunction.conj(reduced, o)
-    //   )
-    //   if (??? != SimpleAPI.ProverStatus.Valid) {
-    //     println(
-    //       s"simplified new image: ${pp(simplify(asIFormula(Conjunction.conj(newImage, o))))}"
-    //     )
-    //     println(s"simplified old image: ${pp(simplify(asIFormula(reduced)))}")
-    //     println(s"Countermodel: ${partialModel}")
+      addConclusion(
+        Conjunction.conj(newImage, o) <=>
+          Conjunction.conj(reduced, o)
+      )
+      if (??? != SimpleAPI.ProverStatus.Valid) {
+        println(
+          s"simplified new image: ${pp(simplify(asIFormula(Conjunction.conj(newImage, o))))}"
+        )
+        println(s"simplified old image: ${pp(simplify(asIFormula(reduced)))}")
+        println(s"Countermodel: ${partialModel}")
 
-    //     println("Automata:")
-    //     println(this.toString)
+        println("Automata:")
+        println(this.toString)
 
-    //     import java.io._
-    //     val file = new File("problem-automata.dot")
-    //     val bw = new BufferedWriter(new FileWriter(file))
-    //     bw.write(this.toDot)
-    //     bw.flush()
-    //     assert(false)
-    //   }
+        import java.io._
+        val file = new File("problem-automata.dot")
+        val bw = new BufferedWriter(new FileWriter(file))
+        bw.write(this.toDot)
+        bw.flush()
+        assert(false)
+      }
 
-    // }
-    // logger.info("Both images were equivalent!")
+    }
+    logger.info("Both images were equivalent!")
     newImage
   }
 
@@ -706,6 +710,31 @@ class BricsAutomaton(val underlying: BAutomaton)
 
     }
 
+  def parikhImageUsingTheory(): Formula = {
+    import TerForConvenience._
+    val parikhTheory = new ParikhTheory(this)
+
+    SimpleAPI.withProver { p =>
+      import p._
+      p.setConstructProofs(true)
+
+      // define an accumulator
+
+      val registerVars = registers.map(_ => createConstant)
+
+      addAssertion(parikhTheory allowsRegisterValues registerVars)
+
+      // spin up a second solver for QE
+
+      // while not unsat, keep getting new values of registerVars, forbid them,
+      // add the QE partial solution from a different solver to the accumulator
+
+      // return the accumulator
+    }
+
+    Conjunction.TRUE
+  }
+
   // FIXME this method is too long
   // FIXME: this method makes a mess of which variables belong to the solver,
   // and which variables are "ours"
@@ -736,6 +765,8 @@ class BricsAutomaton(val underlying: BAutomaton)
       val registerVarSeq =
         registers.map(r => (r -> solver.createConstant)).toVector
       val registerVar = registerVarSeq.toMap
+
+      println("register variables :" + registerVar)
 
       implicit val order = solver.order
 
@@ -922,6 +953,8 @@ class BricsAutomaton(val underlying: BAutomaton)
 
               val elimSol =
                 qeSolver.projectEx(matrix, registerVar.values)
+
+              println("partial solution: " + elimSol)
 
               image += solver.asConjunction(elimSol)
               ~elimSol
