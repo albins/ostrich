@@ -1,16 +1,21 @@
 package strsolver
 
 import ap.parser.ITerm
+import ap.SimpleAPI
 import org.scalatest.FunSuite
 import strsolver.preprop.{BricsAutomaton, BricsAutomatonBuilder}
 
 class TestParikhTheory extends FunSuite {
+  import SimpleAPI.ProverStatus.{Sat, Unsat}
 
-  private def expectUnsatRegisterConstraints(
-      aut: BricsAutomaton,
-      comment: String = ""
-  )(constraintGenerator: (Seq[ITerm], ap.SimpleAPI) => Unit) {
-    import ap.SimpleAPI
+  def doto[A](target: A)(calls: (A => Unit)*) =
+    calls foreach {_(target)}
+
+  private def expectRegisterConstraints(
+    aut: BricsAutomaton,
+    expectedStatus: SimpleAPI.ProverStatus.Value,
+    comment: String = ""
+  )(constraintGenerator: (Seq[ITerm], SimpleAPI) => Unit) {
 
     SimpleAPI.withProver { p =>
       import p._
@@ -21,8 +26,8 @@ class TestParikhTheory extends FunSuite {
 
       addAssertion((new ParikhTheory(aut)) allowsRegisterValues (registerVars))
 
-      if (??? != SimpleAPI.ProverStatus.Unsat) {
-        assert(false, s"${comment}: ${???}. Countermodel: ${partialModel}")
+      if (??? != expectedStatus) {
+        assert(false, s"${comment}: ${???} (expected: ${expectedStatus}). Countermodel: ${partialModel}")
       }
 
     }
@@ -72,7 +77,7 @@ class TestParikhTheory extends FunSuite {
         .to[Seq]
     )
 
-    expectUnsatRegisterConstraints(automaton) {
+    expectRegisterConstraints(automaton, Unsat) {
       case (registers, p) =>
         val r = registers(0)
         List(2, 3, 7).foreach(v => p.addAssertion(r =/= v))
@@ -157,7 +162,6 @@ class TestParikhTheory extends FunSuite {
       a.addNewRegister(builder.etaMap(a.transitions.next).size)
       a
     }
-
     // println(automaton.toDot)
     println(
       aut.transitions
@@ -168,13 +172,39 @@ class TestParikhTheory extends FunSuite {
         .to[Seq]
     )
 
-    expectUnsatRegisterConstraints(aut, "#3 >= 1 & #0 < 1") {
+    expectRegisterConstraints(aut, Unsat, "#3 >= 1 & #0 < 1") {
       case (r, p) => p.addAssertion((r(3) >= 1) &&& (r(0) === 0))
     }
 
-    expectUnsatRegisterConstraints(aut, "#6 disconnected") {
+    expectRegisterConstraints(aut, Unsat, "#6 disconnected") {
       case (r, p) =>
         p.addAssertion((r(6) >= 1) &&& (r(5) === 0) &&& (r(1) === 0))
+    }
+
+  }
+
+  test("single-state, looped, accepting automaton") {
+    val aut = {
+      val builder = new BricsAutomatonBuilder
+      val state = builder.getNewState
+      doto(builder)(
+      _.setAccept(state, true),
+      _.setInitialState(state),
+      _.addTransition(
+        state,
+        allChars,
+        state,
+        List(1)
+      ))
+
+      val a = builder.getAutomaton
+      a.addEtaMaps(builder.etaMap)
+      a.addNewRegister(builder.etaMap(a.transitions.next).size)
+      a
+    }
+
+    expectRegisterConstraints(aut, Sat, "#0 > 1") {
+      case (r, p) => p.addAssertion((r(0) > 7))
     }
 
   }
