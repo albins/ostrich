@@ -730,8 +730,12 @@ class BricsAutomaton(val underlying: BAutomaton)
       makeExistential(registers)
 
       println("result: " + ???)
-      println("parikh image from theory:" + pp(~getConstraint))
-      Conjunction.negate(getConstraintRaw, p.order)
+      if (getConstraint.isTrue) {
+        Conjunction.TRUE
+      } else {
+        println("parikh image from theory:" + pp(~getConstraint))
+        Conjunction.negate(getConstraintRaw, p.order)
+      }
     }
   }
 
