@@ -7,10 +7,7 @@ import strsolver.preprop.{BricsAutomaton, BricsAutomatonBuilder}
 
 class TestParikhTheory extends FunSuite {
   import SimpleAPI.ProverStatus.{Sat, Unsat}
-
-  def doto[A](target: A)(calls: (A => Unit)*) =
-    calls foreach {_(target)}
-
+  
   private def expectRegisterConstraints(
     aut: BricsAutomaton,
     expectedStatus: SimpleAPI.ProverStatus.Value,
@@ -187,17 +184,17 @@ class TestParikhTheory extends FunSuite {
     val aut = {
       val builder = new BricsAutomatonBuilder
       val state = builder.getNewState
-      doto(builder)(
-      _.setAccept(state, true),
-      _.setInitialState(state),
-      _.addTransition(
-        state,
-        allChars,
-        state,
-        List(1)
-      ))
 
-      val a = builder.getAutomaton
+      val a = builder
+        .setAccept(state, true)
+        .setInitialState(state)
+        .addTransition(
+          state,
+          allChars,
+          state,
+          List(1))
+        .getAutomaton
+
       a.addEtaMaps(builder.etaMap)
       a.addNewRegister(builder.etaMap(a.transitions.next).size)
       a

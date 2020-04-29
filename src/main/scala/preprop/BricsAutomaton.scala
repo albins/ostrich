@@ -18,9 +18,7 @@
 
 package strsolver.preprop
 
-import ap.{
-  SimpleAPI, PresburgerTools
-}
+import ap.{SimpleAPI, PresburgerTools}
 import ap.parser._
 import ap.terfor.preds.PredConj
 import ap.terfor.substitutions.ConstantSubst
@@ -583,7 +581,7 @@ class BricsAutomaton(val underlying: BAutomaton)
 
     val simpAut = this.makeLabelsUniform.minimize
     val newImage = simpAut.parikhImageUsingTheory
-    val oldImage = simpAut.parikhImageNew
+    val oldImage = simpAut.parikhImageOld
 
     SimpleAPI.withProver { p =>
       import p._
@@ -712,27 +710,29 @@ class BricsAutomaton(val underlying: BAutomaton)
 
   def parikhImageUsingTheory(): Formula = {
     import TerForConvenience._
+    import IExpression.or
     val parikhTheory = new ParikhTheory(this)
 
     SimpleAPI.withProver { p =>
       import p._
-      p.setConstructProofs(true)
+      // p.setConstructProofs(true)
 
       // define an accumulator
 
-      val registerVars = registers.map(_ => createConstant)
+      for (IConstant(c) <- registers)
+        addConstantRaw(c)
 
-      addAssertion(parikhTheory allowsRegisterValues registerVars)
+      // val registerVars = registers.map(_ => createConstant)
 
-      // spin up a second solver for QE
+      addAssertion(parikhTheory allowsRegisterValues registers)
 
-      // while not unsat, keep getting new values of registerVars, forbid them,
-      // add the QE partial solution from a different solver to the accumulator
+      setMostGeneralConstraints(true)
+      makeExistential(registers)
 
-      // return the accumulator
+      println("result: " + ???)
+      println("parikh image from theory:" + pp(~getConstraint))
+      Conjunction.negate(getConstraintRaw, p.order)
     }
-
-    Conjunction.TRUE
   }
 
   // FIXME this method is too long
@@ -926,7 +926,7 @@ class BricsAutomaton(val underlying: BAutomaton)
           val flowSolution = solver.partialModel
           logger.trace("New flow solution: " + flowSolution)
           val selectedEdges = selectEdgesFrom(flowSolution)
-          logger.info("selected edges: " + selectedEdges.map(fmtTransition(_)))
+          // logger.info("selected edges: " + selectedEdges.map(fmtTransition(_)))
           previousSolution map (
               x =>
                 assert(
@@ -954,14 +954,14 @@ class BricsAutomaton(val underlying: BAutomaton)
               val elimSol =
                 qeSolver.projectEx(matrix, registerVar.values)
 
-              println("partial solution: " + elimSol)
+              // println("partial solution: " + elimSol)
 
               image += solver.asConjunction(elimSol)
               ~elimSol
             }
           }
 
-          logger.debug("Blocking clause:" + blockedClause)
+          // logger.debug("Blocking clause:" + blockedClause)
           solver.addAssertion(blockedClause)
         }
 
@@ -972,13 +972,13 @@ class BricsAutomaton(val underlying: BAutomaton)
       val registerMap: Map[ConstantTerm, Term] =
         registerVar.map { case (IConstant(c), IConstant(d)) => d -> c }.toMap
 
-      logger.debug("Raw image: " + image)
+      // logger.debug("Raw image: " + image)
 
-      logger.debug(
-        "Generated path expression: " + ConstantSubst(registerMap, order)(
-          disjFor(image)
-        )
-      )
+      // logger.debug(
+      //   "Generated path expression: " + ConstantSubst(registerMap, order)(
+      //     disjFor(image)
+      //   )
+      // )
       ConstantSubst(registerMap, order)(disjFor(image))
     }
 
@@ -1593,8 +1593,10 @@ class BricsAutomatonBuilder
   /**
     * Set the initial state
     */
-  def setInitialState(q: BricsAutomaton#State): Unit =
+  def setInitialState(q: BricsAutomaton#State): this.type ={
     baut.setInitialState(q)
+    this
+  }
 
   /**
     * Add a new transition q1 --label--> q2
@@ -1603,11 +1605,13 @@ class BricsAutomatonBuilder
       q1: BricsAutomaton#State,
       label: BricsAutomaton#TLabel,
       q2: BricsAutomaton#State
-  ): Unit = {
+  ): this.type = {
     if (LabelOps.isNonEmptyLabel(label)) {
       val (min, max) = label
       q1.addTransition(new Transition(min, max, q2))
     }
+
+    this
   }
 
   // huzi add-----------------------------------------
@@ -1616,12 +1620,13 @@ class BricsAutomatonBuilder
       label: BricsAutomaton#TLabel,
       q2: BricsAutomaton#State,
       vector: List[Int]
-  ): Unit = {
+  ): this.type = {
     if (LabelOps.isNonEmptyLabel(label)) {
       val (min, max) = label
       q1.addTransition(new Transition(min, max, q2))
       etaMap += ((q1, (min, max), q2) -> vector)
     }
+    this
   }
 
   def outgoingTransitions(
@@ -1630,8 +1635,10 @@ class BricsAutomatonBuilder
     for (t <- q.getTransitions.iterator)
       yield (t.getDest, (t.getMin, t.getMax))
 
-  def setAccept(q: BricsAutomaton#State, isAccepting: Boolean): Unit =
+  def setAccept(q: BricsAutomaton#State, isAccepting: Boolean): this.type = {
     q.setAccept(isAccepting)
+    this
+  }
 
   def isAccept(q: BricsAutomaton#State): Boolean = q.isAccept
 

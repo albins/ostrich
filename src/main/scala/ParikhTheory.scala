@@ -174,8 +174,11 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
               // Plugin.RemoveFacts with the generated atoms
 
               // TODO splitting; split on different paths through the automaton
-
-              Seq(Plugin.AddFormula(!unreachableConstraints))
+              if (unreachableConstraints.isTrue) {
+                Seq()
+              } else {
+                Seq(Plugin.AddFormula(!unreachableConstraints))
+              }
             }
         }
 

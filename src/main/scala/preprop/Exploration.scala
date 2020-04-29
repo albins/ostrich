@@ -771,10 +771,10 @@ abstract class Exploration(
 
           for ((_, autQueue) <- autQueuesPerTerm)
             for (aut <- autQueue) {
-              // addAssertion(order sort aut.parikhImage)
-              addAssertion(
-                (new ParikhTheory(aut)) allowsRegisterValues (aut.registers)
-              )
+              addAssertion(order sort aut.parikhImage)
+              // addAssertion(
+              //   (new ParikhTheory(aut)) allowsRegisterValues (aut.registers)
+              // )
             }
 
           val globalQueue = new PriorityQueue[PriorityQueue[BricsAutomaton]]

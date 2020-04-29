@@ -65,19 +65,19 @@ class TestParikhImage extends FunSuite {
     // Now we just need the transitions
 
     builder.addTransition(states(0), (0, 65535), states(0), List(1, 1, 0, 0))
-    builder.addTransition(states(0), (0, 66), states(1), List(0, 1, 0, 1))
-    builder.addTransition(states(0), (0, 65535), states(2), List(0, 1, 1, 1))
-    builder.addTransition(states(0), (68, 65535), states(1), List(0, 1, 0, 1))
+      .addTransition(states(0), (0, 66), states(1), List(0, 1, 0, 1))
+      .addTransition(states(0), (0, 65535), states(2), List(0, 1, 1, 1))
+      .addTransition(states(0), (68, 65535), states(1), List(0, 1, 0, 1))
 
     builder.addTransition(states(1), (0, 66), states(1), List(0, 1, 0, 1))
-    builder.addTransition(states(1), (0, 65535), states(1), List(0, 1, 0, 0))
-    builder.addTransition(states(1), (0, 65535), states(3), List(0, 0, 0, 0))
-    builder.addTransition(states(1), (68, 65535), states(1), List(0, 1, 0, 1))
+      .addTransition(states(1), (0, 65535), states(1), List(0, 1, 0, 0))
+      .addTransition(states(1), (0, 65535), states(3), List(0, 0, 0, 0))
+      .addTransition(states(1), (68, 65535), states(1), List(0, 1, 0, 1))
 
     builder.addTransition(states(2), (0, 66), states(1), List(0, 1, 0, 1))
-    builder.addTransition(states(2), (0, 65535), states(2), List(0, 1, 1, 1))
-    builder.addTransition(states(2), (0, 65535), states(3), List(0, 0, 0, 0))
-    builder.addTransition(states(2), (68, 65535), states(1), List(0, 1, 0, 1))
+      .addTransition(states(2), (0, 65535), states(2), List(0, 1, 1, 1))
+      .addTransition(states(2), (0, 65535), states(3), List(0, 0, 0, 0))
+      .addTransition(states(2), (68, 65535), states(1), List(0, 1, 0, 1))
 
     builder.addTransition(states(3), (0, 65535), states(3), List(0, 0, 0, 0))
 
