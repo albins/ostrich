@@ -7,7 +7,8 @@ import strsolver.preprop.{BricsAutomaton, BricsAutomatonBuilder}
 
 class TestParikhTheory extends FunSuite {
   import SimpleAPI.ProverStatus.{Sat, Unsat}
-  
+  import strsolver.ParikhTestHelpers.{SaneBuilder, allChars}
+
   private def expectRegisterConstraints(
     aut: BricsAutomaton,
     expectedStatus: SimpleAPI.ProverStatus.Value,
@@ -30,8 +31,6 @@ class TestParikhTheory extends FunSuite {
     }
 
   }
-
-  private val allChars: (Char, Char) = (0, 65535)
 
   //              R1  += 3
   //       +--------------------------------+
@@ -57,12 +56,7 @@ class TestParikhTheory extends FunSuite {
     builder.addTransition(states(0), allChars, states(2), List(3))
     builder.addTransition(states(1), allChars, states(2), List(5))
 
-    val automaton = {
-      val a = builder.getAutomaton
-      a.addEtaMaps(builder.etaMap)
-      a.addNewRegister(builder.etaMap(a.transitions.next).size)
-      a
-    }
+    val automaton = builder.getAutomatonWithRegisters
 
     // println(automaton.toDot)
     println(
@@ -153,12 +147,8 @@ class TestParikhTheory extends FunSuite {
       List(0, 0, 0, 0, 0, 1, 0)
     )
 
-    val aut = {
-      val a = builder.getAutomaton
-      a.addEtaMaps(builder.etaMap)
-      a.addNewRegister(builder.etaMap(a.transitions.next).size)
-      a
-    }
+    val aut = builder.getAutomatonWithRegisters
+
     // println(automaton.toDot)
     println(
       aut.transitions
@@ -185,7 +175,7 @@ class TestParikhTheory extends FunSuite {
       val builder = new BricsAutomatonBuilder
       val state = builder.getNewState
 
-      val a = builder
+      builder
         .setAccept(state, true)
         .setInitialState(state)
         .addTransition(
@@ -193,17 +183,27 @@ class TestParikhTheory extends FunSuite {
           allChars,
           state,
           List(1))
-        .getAutomaton
-
-      a.addEtaMaps(builder.etaMap)
-      a.addNewRegister(builder.etaMap(a.transitions.next).size)
-      a
+        .getAutomatonWithRegisters
     }
+
+    println(aut.toDot)
 
     expectRegisterConstraints(aut, Sat, "#0 > 1") {
       case (r, p) => p.addAssertion((r(0) > 7))
     }
 
+  }
+
+  test("bug #1: incorrect parikh image") {
+    import strsolver.ParikhTestHelpers.{
+      oneDotSmtFourStateAutomaton => automaton,
+      compareFormulae
+    }
+
+
+    compareFormulae(automaton,
+                    automaton.parikhImageUsingTheory,
+                    automaton.parikhImageOld)
   }
 
 }
