@@ -121,16 +121,18 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
         val (transitionVars, registerVars) = atom.splitAt(aut.transitions.size)
         val transitionAndVar = aut.transitions.zip(transitionVars.iterator).to
 
-        Conjunction.conj(
-          List(
-            atom,
-            asManyIncomingAsOutgoing(transitionAndVar),
-            allNonnegative(transitionVars),
-            allNonnegative(registerVars),
-            registerValuesReachable(registerVars, transitionAndVar)
-          ),
-          order
-        )
+        trace(s"Rewriting predicate ${atom} => \n") {
+          Conjunction.conj(
+            List(
+              atom,
+              asManyIncomingAsOutgoing(transitionAndVar),
+              allNonnegative(transitionVars),
+              allNonnegative(registerVars),
+              registerValuesReachable(registerVars, transitionAndVar)
+            ),
+            order
+          )
+        }
       } else atom
     }
   }

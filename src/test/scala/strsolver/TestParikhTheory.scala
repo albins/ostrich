@@ -1,7 +1,7 @@
 package strsolver
 
-import ap.parser.ITerm
 import ap.SimpleAPI
+import ap.parser.ITerm
 import org.scalatest.FunSuite
 import strsolver.preprop.{BricsAutomaton, BricsAutomatonBuilder}
 
@@ -10,9 +10,9 @@ class TestParikhTheory extends FunSuite {
   import strsolver.ParikhTestHelpers.{SaneBuilder, allChars}
 
   private def expectRegisterConstraints(
-    aut: BricsAutomaton,
-    expectedStatus: SimpleAPI.ProverStatus.Value,
-    comment: String = ""
+      aut: BricsAutomaton,
+      expectedStatus: SimpleAPI.ProverStatus.Value,
+      comment: String = ""
   )(constraintGenerator: (Seq[ITerm], SimpleAPI) => Unit) {
 
     SimpleAPI.withProver { p =>
@@ -25,7 +25,10 @@ class TestParikhTheory extends FunSuite {
       addAssertion((new ParikhTheory(aut)) allowsRegisterValues (registerVars))
 
       if (??? != expectedStatus) {
-        assert(false, s"${comment}: ${???} (expected: ${expectedStatus}). Countermodel: ${partialModel}")
+        assert(
+          false,
+          s"${comment}: ${???} (expected: ${expectedStatus}). Countermodel: ${partialModel}"
+        )
       }
 
     }
@@ -178,11 +181,7 @@ class TestParikhTheory extends FunSuite {
       builder
         .setAccept(state, true)
         .setInitialState(state)
-        .addTransition(
-          state,
-          allChars,
-          state,
-          List(1))
+        .addTransition(state, allChars, state, List(1))
         .getAutomatonWithRegisters
     }
 
@@ -194,16 +193,50 @@ class TestParikhTheory extends FunSuite {
 
   }
 
-  test("bug #1: incorrect parikh image") {
+  test("bug #1: 1.smt2 incorrect parikh image (minimised)") {
+    import strsolver.ParikhTestHelpers.compareFormulae
+
+     
+    val builder = new BricsAutomatonBuilder
+    val states = builder.addNewStates(2)
+    states.foreach(builder.setAccept(_, true))
+
+    val automaton =  builder
+      .setInitialState(states(0))
+      .addTransition(states(0), allChars, states(1), List(1, 1))
+      .addTransition(states(1), allChars, states(1), List(1, 0))
+      .getAutomatonWithRegisters
+    
+    val stateIndex = states.zipWithIndex.toMap
+
+    println(
+      automaton.transitions
+        .map {
+          case (from, _, to) =>
+            (stateIndex(from), stateIndex(to))
+        }
+        .to[Seq]
+    )
+
+    println(automaton.toDot)
+
+    compareFormulae(
+      automaton,
+      automaton.parikhImageUsingTheory,
+      automaton.parikhImageOld
+    )
+  }
+
+  test("bug #1: 1.smt2 incorrect parikh image (original)") {
     import strsolver.ParikhTestHelpers.{
-      oneDotSmtFourStateAutomaton => automaton,
-      compareFormulae
+      compareFormulae, oneDotSmtFourStateAutomaton => automaton
     }
 
-
-    compareFormulae(automaton,
-                    automaton.parikhImageUsingTheory,
-                    automaton.parikhImageOld)
+    compareFormulae(
+      automaton,
+      automaton.parikhImageUsingTheory,
+      automaton.parikhImageOld
+    )
   }
 
 }

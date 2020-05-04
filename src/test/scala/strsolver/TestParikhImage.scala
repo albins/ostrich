@@ -8,7 +8,7 @@ class TestParikhImage extends FunSuite {
 
   test("1.smt2 partial countermodel bug") {
     import ParikhTestHelpers.{oneDotSmtFourStateAutomaton => automaton}
-    
+
     println(automaton.toDot)
 
     val newImage = automaton.parikhImageNew

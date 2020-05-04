@@ -1,26 +1,17 @@
 package strsolver
+import ap.terfor.Formula
 import org.scalatest.Assertions._
 import strsolver.preprop.{BricsAutomaton, BricsAutomatonBuilder}
-import ap.terfor.{Formula}
-
 
 object ParikhTestHelpers {
   def compareFormulae(
       automaton: BricsAutomaton,
       newImage: Formula,
       oldImage: Formula
-  ) = {
-    import ap.PresburgerTools
-    import ap.SimpleAPI
-    import ap.parser.{
-      IConstant,
-      ITerm,
-      InputAbsy2Internal,
-      Internal2InputAbsy,
-      IExpression,
-      IFormula
-    }
-    import ap.terfor.conjunctions.{Conjunction, ReduceWithConjunction}
+  ): Unit  = {
+    import ap.{PresburgerTools, SimpleAPI}
+    import ap.parser.IConstant
+    import ap.terfor.conjunctions.Conjunction
 
     SimpleAPI.withProver { p =>
       import p._
@@ -52,7 +43,7 @@ object ParikhTestHelpers {
     def getAutomatonWithRegisters(): BricsAutomaton = {
       val a = builder.getAutomaton
       a.addEtaMaps(builder.etaMap)
-      if (!a.transitions.isEmpty ) {
+      if (!a.transitions.isEmpty) {
         a.addNewRegister(builder.etaMap(a.transitions.next).size)
       }
       a
@@ -65,7 +56,6 @@ object ParikhTestHelpers {
 
   val allChars: (Char, Char) = (0, 65535)
 
-
   val oneDotSmtFourStateAutomaton = {
     val builder = new BricsAutomatonBuilder
     val states = builder.addNewStates(4)
@@ -74,17 +64,20 @@ object ParikhTestHelpers {
 
     // Now we just need the transitions
 
-    builder.addTransition(states(0), allChars, states(0), List(1, 1, 0, 0))
+    builder
+      .addTransition(states(0), allChars, states(0), List(1, 1, 0, 0))
       .addTransition(states(0), (0, 66), states(1), List(0, 1, 0, 1))
       .addTransition(states(0), allChars, states(2), List(0, 1, 1, 1))
       .addTransition(states(0), (68, 65535), states(1), List(0, 1, 0, 1))
 
-    builder.addTransition(states(1), (0, 66), states(1), List(0, 1, 0, 1))
+    builder
+      .addTransition(states(1), (0, 66), states(1), List(0, 1, 0, 1))
       .addTransition(states(1), allChars, states(1), List(0, 1, 0, 0))
       .addTransition(states(1), allChars, states(3), List(0, 0, 0, 0))
       .addTransition(states(1), (68, 65535), states(1), List(0, 1, 0, 1))
 
-    builder.addTransition(states(2), (0, 66), states(1), List(0, 1, 0, 1))
+    builder
+      .addTransition(states(2), (0, 66), states(1), List(0, 1, 0, 1))
       .addTransition(states(2), allChars, states(2), List(0, 1, 1, 1))
       .addTransition(states(2), allChars, states(3), List(0, 0, 0, 0))
       .addTransition(states(2), (68, 65535), states(1), List(0, 1, 0, 1))

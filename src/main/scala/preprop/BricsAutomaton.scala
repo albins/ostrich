@@ -1597,7 +1597,7 @@ class BricsAutomatonBuilder
   /**
     * Set the initial state
     */
-  def setInitialState(q: BricsAutomaton#State): this.type ={
+  def setInitialState(q: BricsAutomaton#State): this.type = {
     baut.setInitialState(q)
     this
   }
