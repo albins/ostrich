@@ -4,6 +4,7 @@ import ap.parser._
 import ap.proof.goal.Goal
 import ap.proof.theoryPlugins.Plugin
 import ap.terfor.TerForConvenience._
+import ap.terfor.preds.Atom
 import ap.terfor.conjunctions.Conjunction
 import ap.terfor.linearcombination.LinearCombination
 import ap.terfor.{Formula, TermOrder}
@@ -180,63 +181,69 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
     }
   }
 
+  // Handle a specific predicate instance for a proof goal, returning the
+  // resulting plugin actions.
+  private def handlePredicateInstance(
+      goal: Goal
+  )(predicateAtom: Atom): Seq[Plugin.Action] = {
+    implicit val _ = goal.order
+
+    val transitionTerms = trace("transitionTerms") {
+      predicateAtom.take(aut.transitions.size)
+    }
+
+    val transitionToTerm =
+      aut.transitions.to.zip(transitionTerms).toMap
+
+    val transitionByStatus = transitionToTerm
+      .groupBy(x => transitionStatusFromTerm(goal, x._2))
+      .mapValues(_.keys.to[Set])
+
+    val deadTransitions = trace("deadTransitions") {
+      transitionByStatus.getOrElse(TransitionSelected.Absent, Set())
+    }
+
+    val unknownTransitions = trace("unknownTransitions") {
+      transitionByStatus.getOrElse(TransitionSelected.Unknown, Set())
+    }
+
+    // splitta på x = 0 och x > 0, generera två SplitGoals med en
+    // sådan formel, returnera dem
+
+    // eventuellt vill vi använda ScheduleTask för att schemalägga en
+    // funktion för att köra senare (analogt med Plugin).
+
+    // constrain any terms associated with a transition from a
+    // *known* unreachable state to be = 0 ("not used").
+    val unreachableConstraints = trace("unreachableConstraints") {
+      conj(
+        aut
+          .dropEdges(deadTransitions)
+          .unreachableFrom(aut.initialState)
+          .flatMap(
+            aut.transitionsFrom(_).map(transitionToTerm(_) === 0)
+          )
+      )
+    }
+
+    // TODO check if we are subsumed; then generate a
+    // Plugin.RemoveFacts with the generated atoms. Should amount to
+    // checking if unknown transitions is empty.
+
+    // TODO splitting; split on different paths through the automaton
+    if (unreachableConstraints.isTrue) {
+      Seq()
+    } else {
+      Seq(Plugin.AddFormula(!unreachableConstraints))
+    }
+  }
+
   def plugin: Option[Plugin] =
     Some(new Plugin with NoAxiomGeneration {
-      override def handleGoal(goal: Goal): Seq[Plugin.Action] = {
-        goal.facts.predConj.positiveLitsWithPred(predicate).flatMap {
-          predicateAtom =>
-            {
-              implicit val _ = goal.order
-
-              val transitionTerms = trace("transitionTerms") {
-                predicateAtom.take(aut.transitions.size)
-              }
-
-              val transitionToTerm =
-                aut.transitions.to.zip(transitionTerms).toMap
-
-              // TODO partitionera i känt med, känt inte med, okänt
-              // goal.reduceWithFacts
-
-              // använd goal.reduceWithFacts för att hitta de som har ett lower bound över noll
-              //
-              // NOTE: använd groupBy!!!
-              // ta de utan kända bounds och använd för splitting
-
-              // splitta på x = 0 och x > 0, generera två SplitGoals med en sådan formel, returnera dem
-              // eventuellt vill vi använda ScheduleTask för att schemalägga en funktion för att köra senare (analogt med Plugin).
-
-              val deadTransitions = transitionToTerm
-                .filter(
-                  x => transitionStatusFromTerm(goal, x._2).definitelyAbsent
-                )
-                .keys
-                .to[Set]
-
-              val unreachableConstraints = trace("unreachableConstraints") {
-                conj(
-                  aut
-                    .dropEdges(deadTransitions)
-                    .unreachableFrom(aut.initialState)
-                    .flatMap(
-                      aut.transitionsFrom(_).map(transitionToTerm(_) === 0)
-                    )
-                )
-              }
-
-              // TODO check if we are subsumed; then generate a
-              // Plugin.RemoveFacts with the generated atoms
-
-              // TODO splitting; split on different paths through the automaton
-              if (unreachableConstraints.isTrue) {
-                Seq()
-              } else {
-                Seq(Plugin.AddFormula(!unreachableConstraints))
-              }
-            }
-        }
-
-      }
+      override def handleGoal(goal: Goal): Seq[Plugin.Action] =
+        goal.facts.predConj
+          .positiveLitsWithPred(predicate)
+          .flatMap(handlePredicateInstance(goal))
 
     })
 
