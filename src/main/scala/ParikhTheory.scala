@@ -44,6 +44,10 @@ trait Complete extends Theory {
 
 }
 
+trait NoAxiomGeneration {
+  def generateAxioms(goal: Goal) = None
+}
+
 class ParikhTheory(private[this] val aut: BricsAutomaton)
     extends Theory
     with NoFunctions
@@ -51,6 +55,19 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
     with Tracing
     with Complete {
   import IExpression.Predicate
+
+  // This describes the status of a transition in the current model
+  protected sealed trait TransitionSelected {
+    def definitelyAbsent = false
+  }
+
+  object TransitionSelected {
+    case object Present extends TransitionSelected
+    case object Absent extends TransitionSelected {
+      override def definitelyAbsent = true
+    }
+    case object Unknown extends TransitionSelected
+  }
 
   // FIXME: total deterministisk ordning på edges!
   // FIXME: name the predicate!
@@ -137,9 +154,34 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
     }
   }
 
+  private[this] def transitionStatusFromTerm(
+      goal: Goal,
+      term: LinearCombination
+  ): TransitionSelected = trace(s"selection status for ${term} is ") {
+    term match {
+      // The first two cases are an early short-circuit for constants that gets
+      // us out of evaluating the whole expression. TODO verify experimentally
+      // that this is a good optimisation. Otherwise the function can be simplified!
+      case LinearCombination.Constant(x) if x > 0 =>
+        TransitionSelected.Present
+      case LinearCombination.Constant(x) => TransitionSelected.Absent
+      case _ => {
+        // FIXME: make this logic short-circuiting!
+        val lowerBound = trace("lb")(goal.reduceWithFacts.lowerBound(term))
+        val upperBound = trace("ub")(goal.reduceWithFacts.upperBound(term))
+
+        (lowerBound, upperBound) match {
+          case (Some(lb), _) if lb > 0  => TransitionSelected.Present
+          case (_, Some(ub)) if ub <= 0 => TransitionSelected.Absent
+          case _                        => TransitionSelected.Unknown
+        }
+
+      }
+    }
+  }
+
   def plugin: Option[Plugin] =
-    Some(new Plugin {
-      def generateAxioms(goal: Goal) = None
+    Some(new Plugin with NoAxiomGeneration {
       override def handleGoal(goal: Goal): Seq[Plugin.Action] = {
         goal.facts.predConj.positiveLitsWithPred(predicate).flatMap {
           predicateAtom =>
@@ -153,11 +195,21 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
               val transitionToTerm =
                 aut.transitions.to.zip(transitionTerms).toMap
 
+              // TODO partitionera i känt med, känt inte med, okänt
+              // goal.reduceWithFacts
+
+              // använd goal.reduceWithFacts för att hitta de som har ett lower bound över noll
+              //
+              // NOTE: använd groupBy!!!
+              // ta de utan kända bounds och använd för splitting
+
+              // splitta på x = 0 och x > 0, generera två SplitGoals med en sådan formel, returnera dem
+              // eventuellt vill vi använda ScheduleTask för att schemalägga en funktion för att köra senare (analogt med Plugin).
+
               val deadTransitions = transitionToTerm
-                .filter {
-                  case (_, LinearCombination.Constant(x)) if x <= 0 => true
-                  case _                                            => false
-                }
+                .filter(
+                  x => transitionStatusFromTerm(goal, x._2).definitelyAbsent
+                )
                 .keys
                 .to[Set]
 
