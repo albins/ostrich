@@ -49,7 +49,6 @@ import ap.parser.IExpression.GeqZ
 import ap.parser.{IConstant, IExpression, ITerm, Internal2InputAbsy}
 import ap.terfor.linearcombination.{LinearCombination, LinearCombination2}
 import dk.brics.automaton.{RegExp, Automaton => BAutomaton}
-import org.sat4j.minisat.learning.NoLearningNoHeuristics
 
 import scala.collection.breakOut
 import scala.collection.mutable.{
