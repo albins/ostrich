@@ -32,8 +32,8 @@ object SMTLIBTests extends Properties("SMTLIBTests") {
   //   checkFile("tests/hu-benchmarks/length-1.smt2", "unsat")
 
   // We currently get a wrong answer for this test case: unsat instead of sat
-   // property("length-2.smt2") =
-   //   checkFile("tests/hu-benchmarks/length-2.smt2", "sat")
+  // property("length-2.smt2") =
+  //   checkFile("tests/hu-benchmarks/length-2.smt2", "sat")
 
   property("length-2b.smt2") =
     checkFile("tests/hu-benchmarks/length-2b.smt2", "sat")

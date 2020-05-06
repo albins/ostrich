@@ -8,7 +8,7 @@ object ParikhTestHelpers {
       automaton: BricsAutomaton,
       newImage: Formula,
       oldImage: Formula
-  ): Unit  = {
+  ): Unit = {
     import ap.{PresburgerTools, SimpleAPI}
     import ap.parser.IConstant
     import ap.terfor.conjunctions.Conjunction

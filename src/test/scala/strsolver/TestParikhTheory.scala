@@ -196,17 +196,16 @@ class TestParikhTheory extends FunSuite {
   test("bug #1: 1.smt2 incorrect parikh image (minimised)") {
     import strsolver.ParikhTestHelpers.compareFormulae
 
-     
     val builder = new BricsAutomatonBuilder
     val states = builder.addNewStates(2)
     states.foreach(builder.setAccept(_, true))
 
-    val automaton =  builder
+    val automaton = builder
       .setInitialState(states(0))
       .addTransition(states(0), allChars, states(1), List(1, 1))
       .addTransition(states(1), allChars, states(1), List(1, 0))
       .getAutomatonWithRegisters
-    
+
     val stateIndex = states.zipWithIndex.toMap
 
     println(
@@ -229,7 +228,8 @@ class TestParikhTheory extends FunSuite {
 
   test("bug #1: 1.smt2 incorrect parikh image (original)") {
     import strsolver.ParikhTestHelpers.{
-      compareFormulae, oneDotSmtFourStateAutomaton => automaton
+      compareFormulae,
+      oneDotSmtFourStateAutomaton => automaton
     }
 
     compareFormulae(
