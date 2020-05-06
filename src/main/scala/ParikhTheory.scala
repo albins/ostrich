@@ -197,45 +197,60 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
 
     val transitionByStatus = transitionToTerm
       .groupBy(x => transitionStatusFromTerm(goal, x._2))
-      .mapValues(_.keys.to[Set])
+      .mapValues(_.keys)
 
-    val deadTransitions = trace("deadTransitions") {
-      transitionByStatus.getOrElse(TransitionSelected.Absent, Set())
+    val unknownActions = trace("unknownActions") {
+
+      val unknownTransitions = trace("unknownTransitions") {
+        transitionByStatus get TransitionSelected.Unknown
+      }
+
+      def transitionToSplit(transitionTerm: LinearCombination) =
+        Plugin.SplitGoal(
+          Seq(transitionTerm === 0, transitionTerm > 0)
+            .map(eq => Seq(Plugin.AddFormula(conj(eq))))
+        )
+
+      val splittingActions = trace("splittingActions") {
+        unknownTransitions
+          .map(_.map(tr => transitionToSplit(transitionToTerm(tr))))
+          .toList
+          .flatten
+      }
+
+      // TODO check if we are subsumed (= if there are no unknown transitions);
+      // then generate a Plugin.RemoveFacts with the generated atoms. Should
+      // amount to checking if unknown transitions is None.
+
+      // TODO eventuellt vill vi använda ScheduleTask för att schemalägga en
+      // funktion för att köra senare (analogt med Plugin).
+
+      splittingActions
+
     }
-
-    val unknownTransitions = trace("unknownTransitions") {
-      transitionByStatus.getOrElse(TransitionSelected.Unknown, Set())
-    }
-
-    // splitta på x = 0 och x > 0, generera två SplitGoals med en
-    // sådan formel, returnera dem
-
-    // eventuellt vill vi använda ScheduleTask för att schemalägga en
-    // funktion för att köra senare (analogt med Plugin).
 
     // constrain any terms associated with a transition from a
     // *known* unreachable state to be = 0 ("not used").
-    val unreachableConstraints = trace("unreachableConstraints") {
-      conj(
-        aut
-          .dropEdges(deadTransitions)
-          .unreachableFrom(aut.initialState)
-          .flatMap(
-            aut.transitionsFrom(_).map(transitionToTerm(_) === 0)
-          )
-      )
+    val unreachableActions = trace("unreachableActions") {
+      val deadTransitions = trace("deadTransitions") {
+        transitionByStatus.getOrElse(TransitionSelected.Absent, Set()).to[Set]
+      }
+
+      val unreachableConstraints =
+        conj(
+          aut
+            .dropEdges(deadTransitions)
+            .unreachableFrom(aut.initialState)
+            .flatMap(
+              aut.transitionsFrom(_).map(transitionToTerm(_) === 0)
+            )
+        )
+
+      if (unreachableConstraints.isTrue) Seq()
+      else Seq(Plugin.AddFormula(!unreachableConstraints))
     }
 
-    // TODO check if we are subsumed; then generate a
-    // Plugin.RemoveFacts with the generated atoms. Should amount to
-    // checking if unknown transitions is empty.
-
-    // TODO splitting; split on different paths through the automaton
-    if (unreachableConstraints.isTrue) {
-      Seq()
-    } else {
-      Seq(Plugin.AddFormula(!unreachableConstraints))
-    }
+    unreachableActions ++ unknownActions
   }
 
   def plugin: Option[Plugin] =
