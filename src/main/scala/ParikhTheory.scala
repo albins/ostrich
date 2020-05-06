@@ -28,7 +28,7 @@ trait NoAxioms {
 
 trait Tracing {
   protected def trace[T](message: String)(something: T): T = {
-    println(s"trace::${message}(${something})")
+    // println(s"trace::${message}(${something})")
     something
   }
 }
@@ -42,7 +42,6 @@ trait Complete extends Theory {
       Theory.SatSoundnessConfig.Elementary,
       Theory.SatSoundnessConfig.Existential
     ) contains config
-
 }
 
 trait NoAxiomGeneration {
@@ -225,6 +224,12 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
       // TODO eventuellt vill vi använda ScheduleTask för att schemalägga en
       // funktion för att köra senare (analogt med Plugin).
 
+      // TODO: we don't care about splitting edges that cannot possibly cause a
+      // disconnect; i.e. *we only care* about critical edges on the path to
+      // some cycle that can still appear (i.e. wose edges are not
+      // known-deselected).
+
+      // if (!splittingActions.isEmpty) Seq(splittingActions.last) else Seq()
       splittingActions
 
     }

@@ -581,41 +581,41 @@ class BricsAutomaton(val underlying: BAutomaton)
 
     val simpAut = this.makeLabelsUniform.minimize
     val newImage = simpAut.parikhImageUsingTheory
-    val oldImage = simpAut.parikhImageOld
+    // val oldImage = simpAut.parikhImageOld
 
-    SimpleAPI.withProver { p =>
-      import p._
-      registers foreach {
-        case IConstant(c) => addConstantRaw(c)
-      }
-      implicit val o = order
-      val reduced =
-        PresburgerTools.elimQuantifiersWithPreds(Conjunction.conj(oldImage, o))
+    // SimpleAPI.withProver { p =>
+    //   import p._
+    //   registers foreach {
+    //     case IConstant(c) => addConstantRaw(c)
+    //   }
+    //   implicit val o = order
+    //   val reduced =
+    //     PresburgerTools.elimQuantifiersWithPreds(Conjunction.conj(oldImage, o))
 
-      addConclusion(
-        Conjunction.conj(newImage, o) <=>
-          Conjunction.conj(reduced, o)
-      )
-      if (??? != SimpleAPI.ProverStatus.Valid) {
-        println(
-          s"simplified new image: ${pp(simplify(asIFormula(Conjunction.conj(newImage, o))))}"
-        )
-        println(s"simplified old image: ${pp(simplify(asIFormula(reduced)))}")
-        println(s"Countermodel: ${partialModel}")
+    //   addConclusion(
+    //     Conjunction.conj(newImage, o) <=>
+    //       Conjunction.conj(reduced, o)
+    //   )
+    //   if (??? != SimpleAPI.ProverStatus.Valid) {
+    //     println(
+    //       s"simplified new image: ${pp(simplify(asIFormula(Conjunction.conj(newImage, o))))}"
+    //     )
+    //     println(s"simplified old image: ${pp(simplify(asIFormula(reduced)))}")
+    //     println(s"Countermodel: ${partialModel}")
 
-        println("Automata:")
-        println(this.toString)
+    //     println("Automata:")
+    //     println(this.toString)
 
-        import java.io._
-        val file = new File("problem-automata.dot")
-        val bw = new BufferedWriter(new FileWriter(file))
-        bw.write(this.toDot)
-        bw.flush()
-        assert(false)
-      }
+    //     import java.io._
+    //     val file = new File("problem-automata.dot")
+    //     val bw = new BufferedWriter(new FileWriter(file))
+    //     bw.write(this.toDot)
+    //     bw.flush()
+    //     assert(false)
+    //   }
 
-    }
-    logger.info("Both images were equivalent!")
+    // }
+    // logger.info("Both images were equivalent!")
     newImage
   }
 
@@ -708,36 +708,37 @@ class BricsAutomaton(val underlying: BAutomaton)
 
     }
 
-  def parikhImageUsingTheory(): Formula = {
-    import TerForConvenience._
-    import IExpression.or
-    val parikhTheory = new ParikhTheory(this)
+  def parikhImageUsingTheory(): Formula =
+    Exploration.measure("parikhImage::usingTheory") {
+      import TerForConvenience._
+      import IExpression.or
+      val parikhTheory = new ParikhTheory(this)
 
-    SimpleAPI.withProver { p =>
-      import p._
-      // p.setConstructProofs(true)
+      SimpleAPI.withProver { p =>
+        import p._
+        // p.setConstructProofs(true)
 
-      // define an accumulator
+        // define an accumulator
 
-      for (IConstant(c) <- registers)
-        addConstantRaw(c)
+        for (IConstant(c) <- registers)
+          addConstantRaw(c)
 
-      // val registerVars = registers.map(_ => createConstant)
+        // val registerVars = registers.map(_ => createConstant)
 
-      addAssertion(parikhTheory allowsRegisterValues registers)
+        addAssertion(parikhTheory allowsRegisterValues registers)
 
-      setMostGeneralConstraints(true)
-      makeExistential(registers)
+        setMostGeneralConstraints(true)
+        makeExistential(registers)
 
-      println("result: " + ???)
-      if (getConstraint.isTrue) {
-        Conjunction.TRUE
-      } else {
-        println("parikh image from theory:" + pp(~getConstraint))
-        Conjunction.negate(getConstraintRaw, p.order)
+        println("result: " + ???)
+        if (getConstraint.isTrue) {
+          Conjunction.TRUE
+        } else {
+          println("parikh image from theory:" + pp(~getConstraint))
+          Conjunction.negate(getConstraintRaw, p.order)
+        }
       }
     }
-  }
 
   // FIXME this method is too long
   // FIXME: this method makes a mess of which variables belong to the solver,

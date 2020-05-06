@@ -441,26 +441,6 @@ abstract class Exploration(
     res
   }
 
-  /*
-  private def getProductParikhImage(auts : Seq[Automaton]) : Formula = {
-    val bAuts =
-      for (aut <- auts)
-      yield AtomicStateAutomatonAdapter.intern(aut)
-                                       .asInstanceOf[BricsAutomaton]
-    BricsAutomaton.product(bAuts).parikhImage
-  }
-
-  private def getProductParikhImage(tcs : Seq[TermConstraint]) : Formula =
-    getProductParikhImage(for (TermConstraint(_, aut) <- tcs) yield aut)
-
-  // get parikhImage of each bricsAutomaton in auts
-  private def getAutsParikhImage(auts: Seq[BricsAutomaton]): List[Formula] = {
-    (auts.map { aut =>
-      aut.parikhImage
-    }).toList
-  }
-   */
-
   private def getNotDeclare(seq: Seq[ArrayBuffer[BricsAutomaton]]) = {
     val res = new MHashSet[ConstantTerm]()
     seq.foreach(
@@ -771,10 +751,9 @@ abstract class Exploration(
 
           for ((_, autQueue) <- autQueuesPerTerm)
             for (aut <- autQueue) {
-              addAssertion(order sort aut.parikhImage)
-              // addAssertion(
-              //   (new ParikhTheory(aut)) allowsRegisterValues (aut.registers)
-              // )
+              addAssertion(
+                (new ParikhTheory(aut)) allowsRegisterValues (aut.registers)
+              )
             }
 
           val globalQueue = new PriorityQueue[PriorityQueue[BricsAutomaton]]
@@ -796,7 +775,9 @@ abstract class Exploration(
             if (nextQueue.size > 1)
               globalQueue += nextQueue
 
-            addAssertion(order sort productAut.parikhImage)
+            addAssertion(
+              (new ParikhTheory(productAut)) allowsRegisterValues (productAut.registers)
+            )
             result = ???
           }
 

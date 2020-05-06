@@ -35,14 +35,14 @@ object SMTLIBTests extends Properties("SMTLIBTests") {
    // property("length-2.smt2") =
    //   checkFile("tests/hu-benchmarks/length-2.smt2", "sat")
 
-  // property("length-2b.smt2") =
-  //   checkFile("tests/hu-benchmarks/length-2b.smt2", "sat")
-  // property("length-2c.smt2") =
-  //   checkFile("tests/hu-benchmarks/length-2c.smt2", "unsat")
+  property("length-2b.smt2") =
+    checkFile("tests/hu-benchmarks/length-2b.smt2", "sat")
+  property("length-2c.smt2") =
+    checkFile("tests/hu-benchmarks/length-2c.smt2", "unsat")
 
-  // property("indexof-1.smt2") =
-  //   checkFile("tests/hu-benchmarks/indexof-1.smt2", "unsat")
-  // property("indexof-2.smt2") =
-  //   checkFile("tests/hu-benchmarks/indexof-2.smt2", "unsat")
+  property("indexof-1.smt2") =
+    checkFile("tests/hu-benchmarks/indexof-1.smt2", "unsat")
+  property("indexof-2.smt2") =
+    checkFile("tests/hu-benchmarks/indexof-2.smt2", "unsat")
 
 }
