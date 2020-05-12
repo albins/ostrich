@@ -86,7 +86,7 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
     }
   }
 
-  private object LazyTransitionSplitter extends PredicateHandlingProcedure {
+  private object TransitionSplitter extends PredicateHandlingProcedure {
     override val procedurePredicate = predicate
     override def handlePredicateInstance(
         goal: Goal
@@ -143,8 +143,8 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
 
       val splittingActions = trace("splittingActions") {
         goalState(goal) match {
-          case Plugin.GoalState.Final => LazyTransitionSplitter.handleGoal(goal)
-          case _                      => List(Plugin.ScheduleTask(LazyTransitionSplitter, 0))
+          case Plugin.GoalState.Final => TransitionSplitter.handleGoal(goal)
+          case _                      => List(Plugin.ScheduleTask(TransitionSplitter, 0))
         }
       }
 
