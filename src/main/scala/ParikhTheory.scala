@@ -2,7 +2,7 @@ package strsolver
 import ap.basetypes.IdealInt
 import ap.parser._
 import ap.proof.goal.Goal
-import ap.proof.theoryPlugins.Plugin
+import ap.proof.theoryPlugins.{Plugin, TheoryProcedure}
 import ap.terfor.TerForConvenience._
 import ap.terfor.preds.Atom
 import ap.terfor.conjunctions.Conjunction
@@ -11,6 +11,7 @@ import ap.terfor.{Formula, TermOrder}
 import ap.theories._
 import strsolver.preprop.BricsAutomaton
 import strsolver.preprop.EdgeWrapper._
+import ap.parser.IExpression.Predicate
 
 trait NoFunctions {
   val functionPredicateMapping
@@ -48,17 +49,31 @@ trait NoAxiomGeneration {
   def generateAxioms(goal: Goal) = None
 }
 
+// Provide a function to handle a predicate, automatically become a theory
+// procedure.
+trait PredicateHandlingProcedure extends TheoryProcedure {
+  val procedurePredicate: IExpression.Predicate
+  def handlePredicateInstance(goal: Goal)(
+      predicateAtom: Atom
+  ): Seq[Plugin.Action]
+
+  override def handleGoal(goal: Goal): Seq[Plugin.Action] =
+    goal.facts.predConj
+      .positiveLitsWithPred(procedurePredicate)
+      .flatMap(handlePredicateInstance(goal))
+}
+
 class ParikhTheory(private[this] val aut: BricsAutomaton)
     extends Theory
     with NoFunctions
     with NoAxioms
     with Tracing
     with Complete {
-  import IExpression.Predicate
 
   // This describes the status of a transition in the current model
   protected sealed trait TransitionSelected {
     def definitelyAbsent = false
+    def isUnknown = false
   }
 
   object TransitionSelected {
@@ -66,7 +81,109 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
     case object Absent extends TransitionSelected {
       override def definitelyAbsent = true
     }
-    case object Unknown extends TransitionSelected
+    case object Unknown extends TransitionSelected {
+      override def isUnknown = true
+    }
+  }
+
+  private object LazyTransitionSplitter extends PredicateHandlingProcedure {
+    override val procedurePredicate = predicate
+    override def handlePredicateInstance(
+        goal: Goal
+    )(predicateAtom: Atom): Seq[Plugin.Action] = {
+      implicit val _ = goal.order
+
+      val transitionTerms = trace("transitionTerms") {
+        predicateAtom.take(aut.transitions.size)
+      }
+
+      val unknownTransitions = trace("unknownTransitions") {
+        transitionTerms filter (
+            t => transitionStatusFromTerm(goal, t).isUnknown
+        )
+      }
+
+      trace("unknownActions") {
+        def transitionToSplit(transitionTerm: LinearCombination) =
+          Plugin.SplitGoal(
+            Seq(transitionTerm === 0, transitionTerm > 0)
+              .map(eq => Seq(Plugin.AddFormula(conj(eq))))
+          )
+
+        val splittingActions = trace("splittingActions") {
+          unknownTransitions
+            .map(transitionToSplit(_))
+            .toList
+        }
+
+        splittingActions
+
+      }
+    }
+  }
+
+  private object ParikhTheoryPlugin
+      extends Plugin
+      with PredicateHandlingProcedure
+      with NoAxiomGeneration {
+    // Handle a specific predicate instance for a proof goal, returning the
+    // resulting plugin actions.
+    override val procedurePredicate = predicate
+    override def handlePredicateInstance(
+        goal: Goal
+    )(predicateAtom: Atom): Seq[Plugin.Action] = {
+      implicit val _ = goal.order
+
+      val transitionTerms = trace("transitionTerms") {
+        predicateAtom.take(aut.transitions.size)
+      }
+
+      val transitionToTerm =
+        aut.transitions.to.zip(transitionTerms).toMap
+
+      val splittingActions = trace("splittingActions") {
+        goalState(goal) match {
+          case Plugin.GoalState.Final => LazyTransitionSplitter.handleGoal(goal)
+          case _                      => List(Plugin.ScheduleTask(LazyTransitionSplitter, 0))
+        }
+      }
+
+      // TODO check if we are subsumed (= if there are no unknown transitions);
+      // then generate a Plugin.RemoveFacts with the generated atoms. Should
+      // amount to checking if unknown transitions is None.
+
+      // TODO: we don't care about splitting edges that cannot possibly cause a
+      // disconnect; i.e. *we only care* about critical edges on the path to
+      // some cycle that can still appear (i.e. wose edges are not
+      // known-deselected).
+
+      // constrain any terms associated with a transition from a
+      // *known* unreachable state to be = 0 ("not used").
+      val unreachableActions = trace("unreachableActions") {
+        val deadTransitions = trace("deadTransitions") {
+          aut.transitions
+            .filter(
+              t => transitionStatusFromTerm(goal, transitionToTerm(t)).definitelyAbsent
+            )
+            .to[Set]
+        }
+
+        val unreachableConstraints =
+          conj(
+            aut
+              .dropEdges(deadTransitions)
+              .unreachableFrom(aut.initialState)
+              .flatMap(
+                aut.transitionsFrom(_).map(transitionToTerm(_) === 0)
+              )
+          )
+
+        if (unreachableConstraints.isTrue) Seq()
+        else Seq(Plugin.AddFormula(!unreachableConstraints))
+      }
+
+      unreachableActions ++ splittingActions
+    }
   }
 
   // FIXME: total deterministisk ordning på edges!
@@ -180,92 +297,7 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
     }
   }
 
-  // Handle a specific predicate instance for a proof goal, returning the
-  // resulting plugin actions.
-  private def handlePredicateInstance(
-      goal: Goal
-  )(predicateAtom: Atom): Seq[Plugin.Action] = {
-    implicit val _ = goal.order
-
-    val transitionTerms = trace("transitionTerms") {
-      predicateAtom.take(aut.transitions.size)
-    }
-
-    val transitionToTerm =
-      aut.transitions.to.zip(transitionTerms).toMap
-
-    val transitionByStatus = transitionToTerm
-      .groupBy(x => transitionStatusFromTerm(goal, x._2))
-      .mapValues(_.keys)
-
-    val unknownActions = trace("unknownActions") {
-
-      val unknownTransitions = trace("unknownTransitions") {
-        transitionByStatus get TransitionSelected.Unknown
-      }
-
-      def transitionToSplit(transitionTerm: LinearCombination) =
-        Plugin.SplitGoal(
-          Seq(transitionTerm === 0, transitionTerm > 0)
-            .map(eq => Seq(Plugin.AddFormula(conj(eq))))
-        )
-
-      val splittingActions = trace("splittingActions") {
-        unknownTransitions
-          .map(_.map(tr => transitionToSplit(transitionToTerm(tr))))
-          .toList
-          .flatten
-      }
-
-      // TODO check if we are subsumed (= if there are no unknown transitions);
-      // then generate a Plugin.RemoveFacts with the generated atoms. Should
-      // amount to checking if unknown transitions is None.
-
-      // TODO eventuellt vill vi använda ScheduleTask för att schemalägga en
-      // funktion för att köra senare (analogt med Plugin).
-
-      // TODO: we don't care about splitting edges that cannot possibly cause a
-      // disconnect; i.e. *we only care* about critical edges on the path to
-      // some cycle that can still appear (i.e. wose edges are not
-      // known-deselected).
-
-      // if (!splittingActions.isEmpty) Seq(splittingActions.last) else Seq()
-      splittingActions
-
-    }
-
-    // constrain any terms associated with a transition from a
-    // *known* unreachable state to be = 0 ("not used").
-    val unreachableActions = trace("unreachableActions") {
-      val deadTransitions = trace("deadTransitions") {
-        transitionByStatus.getOrElse(TransitionSelected.Absent, Set()).to[Set]
-      }
-
-      val unreachableConstraints =
-        conj(
-          aut
-            .dropEdges(deadTransitions)
-            .unreachableFrom(aut.initialState)
-            .flatMap(
-              aut.transitionsFrom(_).map(transitionToTerm(_) === 0)
-            )
-        )
-
-      if (unreachableConstraints.isTrue) Seq()
-      else Seq(Plugin.AddFormula(!unreachableConstraints))
-    }
-
-    unreachableActions ++ unknownActions
-  }
-
-  def plugin: Option[Plugin] =
-    Some(new Plugin with NoAxiomGeneration {
-      override def handleGoal(goal: Goal): Seq[Plugin.Action] =
-        goal.facts.predConj
-          .positiveLitsWithPred(predicate)
-          .flatMap(handlePredicateInstance(goal))
-
-    })
+  def plugin: Option[Plugin] = Some(ParikhTheoryPlugin)
 
   /**
     * Generate a quantified formula that is satisfiable iff the provided
