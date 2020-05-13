@@ -91,7 +91,7 @@ trait RichGraph[Node, Label] extends Graphable[Node, Label] with LazyLogging {
   // Calculate the min-cut between the unweighted flow network between
   // source and drain. This uses Edmonds-Karp.
   def minCut(source: Node, drain: Node): Set[(Node, Label, Node)] = {
-
+    assert(source != drain, "source and drain must be different")
     @tailrec
     def findResidual(
         residual: MapGraph[Node, Label]

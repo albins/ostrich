@@ -11,6 +11,7 @@ import ap.terfor.{Formula, TermOrder}
 import ap.theories._
 import strsolver.preprop.BricsAutomaton
 import strsolver.preprop.EdgeWrapper._
+import strsolver.preprop.{RichGraph, Graphable}
 import ap.parser.IExpression.Predicate
 
 trait NoFunctions {
@@ -70,6 +71,36 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
     with Tracing
     with Complete {
 
+  private val cycles = aut.simpleCycles
+  trace("cycles")(cycles.map(_.map(aut.state2Index)))
+
+  private val cutAndCycle = cycles.flatMap { cycle =>
+    trace("cycle head")(aut.state2Index(cycle.last))
+    val cycleMerged = aut.mergeNodes(cycle)
+    val initialState = cycleMerged equivalentNode aut.initialState
+    val cycleState = cycleMerged equivalentNode cycle.last
+    if (initialState == cycleState) List()
+    else {
+      val connectingEdges =
+        cycleMerged
+          .minCut(
+            initialState,
+            cycleState
+          )
+          .flatMap { case (_, realEdges, _) => realEdges }
+
+      trace("connectingEdges")(connectingEdges.map(aut.fmtTransition))
+
+      if (connectingEdges.isEmpty) List() else List((connectingEdges, cycle))
+    }
+
+  }.toIndexedSeq
+
+  trace("cutAndCycle")(cutAndCycle.map {
+    case (cut, cycle) =>
+      (cut.map(aut.fmtTransition), cycle.map(aut.state2Index))
+  })
+
   // This describes the status of a transition in the current model
   protected sealed trait TransitionSelected {
     def definitelyAbsent = false
@@ -122,7 +153,7 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
     }
   }
 
-  private object ParikhTheoryPlugin
+  private object ConnectednessPropagator
       extends Plugin
       with PredicateHandlingProcedure
       with NoAxiomGeneration {
@@ -134,12 +165,18 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
     )(predicateAtom: Atom): Seq[Plugin.Action] = {
       implicit val _ = goal.order
 
-      val transitionTerms = trace("transitionTerms") {
-        predicateAtom.take(aut.transitions.size)
-      }
+      val transitionTerms = predicateAtom.take(aut.transitions.size)
 
       val transitionToTerm =
         aut.transitions.to.zip(transitionTerms).toMap
+
+      trace("transitionToTerm") {
+        transitionToTerm.map {
+          case (transition, term) =>
+            s"${aut.fmtTransition(transition)} == ${term}"
+        }
+
+      }
 
       val splittingActions = trace("splittingActions") {
         goalState(goal) match {
@@ -163,7 +200,7 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
         val deadTransitions = trace("deadTransitions") {
           aut.transitions
             .filter(
-              t => transitionStatusFromTerm(goal, transitionToTerm(t)).definitelyAbsent
+              t => termMeansDefinitelyAbsent(goal, transitionToTerm(t))
             )
             .to[Set]
         }
@@ -255,49 +292,46 @@ class ParikhTheory(private[this] val aut: BricsAutomaton)
         val (transitionVars, registerVars) = atom.splitAt(aut.transitions.size)
         val transitionAndVar = aut.transitions.zip(transitionVars.iterator).to
 
+        val constraints = List(
+          asManyIncomingAsOutgoing(transitionAndVar),
+          allNonnegative(transitionVars),
+          allNonnegative(registerVars),
+          registerValuesReachable(registerVars, transitionAndVar)
+        )
+
+        val maybeAtom = if (cutAndCycle.isEmpty) List() else List(atom)
+
         trace(s"Rewriting predicate ${atom} => \n") {
-          Conjunction.conj(
-            List(
-              atom,
-              asManyIncomingAsOutgoing(transitionAndVar),
-              allNonnegative(transitionVars),
-              allNonnegative(registerVars),
-              registerValuesReachable(registerVars, transitionAndVar)
-            ),
-            order
-          )
+          Conjunction.conj(maybeAtom ++ constraints, order)
         }
       } else atom
     }
+  }
+
+  private def termMeansDefinitelyAbsent(
+      goal: Goal,
+      term: LinearCombination
+  ): Boolean = trace(s"termMeansDefinitelyAbsent(${term})") {
+    term match {
+      case LinearCombination.Constant(x) => x <= 0
+      case _                             => goal.reduceWithFacts.upperBound(term).exists(_ <= 0)
+    }
+
   }
 
   private[this] def transitionStatusFromTerm(
       goal: Goal,
       term: LinearCombination
   ): TransitionSelected = trace(s"selection status for ${term} is ") {
-    term match {
-      // The first two cases are an early short-circuit for constants that gets
-      // us out of evaluating the whole expression. TODO verify experimentally
-      // that this is a good optimisation. Otherwise the function can be simplified!
-      case LinearCombination.Constant(x) if x > 0 =>
-        TransitionSelected.Present
-      case LinearCombination.Constant(x) => TransitionSelected.Absent
-      case _ => {
-        // FIXME: make this logic short-circuiting!
-        val lowerBound = trace("lb")(goal.reduceWithFacts.lowerBound(term))
-        val upperBound = trace("ub")(goal.reduceWithFacts.upperBound(term))
+    lazy val lowerBound = goal.reduceWithFacts.lowerBound(term)
+    lazy val upperBound = goal.reduceWithFacts.upperBound(term)
 
-        (lowerBound, upperBound) match {
-          case (Some(lb), _) if lb > 0  => TransitionSelected.Present
-          case (_, Some(ub)) if ub <= 0 => TransitionSelected.Absent
-          case _                        => TransitionSelected.Unknown
-        }
-
-      }
-    }
+    if (lowerBound.exists(_ > 0)) TransitionSelected.Present
+    else if (upperBound.exists(_ <= 0)) TransitionSelected.Absent
+    else TransitionSelected.Unknown
   }
 
-  def plugin: Option[Plugin] = Some(ParikhTheoryPlugin)
+  def plugin: Option[Plugin] = Some(ConnectednessPropagator)
 
   /**
     * Generate a quantified formula that is satisfiable iff the provided

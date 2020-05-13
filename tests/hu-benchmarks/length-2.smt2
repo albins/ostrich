@@ -1,4 +1,14 @@
 ;sat
+;; (model 
+;;  (define-fun x2 () String
+;;    "b")
+;;  (define-fun x1 () String
+;;    "a")
+;;  (define-fun x4 () String
+;;    "")
+;;  (define-fun x3 () String
+;;    "ab")
+;;  )
 
 (set-logic QF_S)
 
@@ -15,4 +25,4 @@
 (assert (> (str.len x1) (str.len x4)))
 
 (check-sat)
-
+(get-model)

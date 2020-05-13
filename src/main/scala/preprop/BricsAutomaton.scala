@@ -521,9 +521,9 @@ class BricsAutomaton(val underlying: BAutomaton)
 
   // FIXME: we will not always need these
   private val stateSeq = states.toIndexedSeq
-  private lazy val state2Index = stateSeq.iterator.zipWithIndex.toMap
+  lazy val state2Index = stateSeq.iterator.zipWithIndex.toMap
 
-  private def fmtTransition(t: FromLabelTo) = {
+  def fmtTransition(t: FromLabelTo) = {
     val (from, (labelMin, labelMax), to) = t
 
     s"(${state2Index(from)} -[${labelMin.toInt}, ${labelMax.toInt}]-> ${state2Index(to)})"
@@ -1542,7 +1542,9 @@ class BricsAutomaton(val underlying: BAutomaton)
   def edges() = transitions.to
   def transitionsFrom(node: State) =
     outgoingTransitions(node).map(t => (node, t._2, t._1)).toSeq
-  def subgraph(selectedNodes: Set[State]): RichGraph[State, TLabel] = ???
+  // FIXME this is ugly
+  def subgraph(selectedNodes: Set[State]): RichGraph[State, TLabel] =
+    this.dropEdges(Set()).subgraph(selectedNodes)
   def dropEdges(edgesToDrop: Set[(State, TLabel, State)]) = {
     new MapGraph(edges.toSet &~ edgesToDrop)
   }
