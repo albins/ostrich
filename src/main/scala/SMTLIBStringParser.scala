@@ -41,7 +41,13 @@ object SMTLIBStringParser {
   }
 
   private type Env =
-    Environment[SMTType, VariableType, Unit, SMTFunctionType, SMTType]
+    Environment[
+      SMTType,
+      VariableType,
+      SMTFunctionType,
+      SMTFunctionType,
+      SMTType
+    ]
 
   def apply(settings: ParserSettings) =
     new SMTLIBStringParser(new Env, settings)

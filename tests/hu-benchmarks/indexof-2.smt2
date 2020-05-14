@@ -1,7 +1,7 @@
 ;unsat
 
 (set-logic QF_S)
-(set-logic QF_LIA)
+
 (declare-fun x () String)
 (declare-const t Int)
 

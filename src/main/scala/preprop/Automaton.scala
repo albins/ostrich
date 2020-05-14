@@ -356,12 +356,12 @@ trait AtomicStateAutomatonBuilder[State, TLabel] {
   /**
     * Set the initial state
     */
-  def setInitialState(q: State): Unit
+  def setInitialState(q: State): this.type
 
   /**
     * Add a new transition q1 --label--> q2
     */
-  def addTransition(s1: State, label: TLabel, s2: State): Unit
+  def addTransition(s1: State, label: TLabel, s2: State): this.type
 
   /**
     * Iterate over outgoing transitions from state
@@ -376,7 +376,7 @@ trait AtomicStateAutomatonBuilder[State, TLabel] {
   /**
     * Set state accepting
     */
-  def setAccept(s: State, isAccepting: Boolean): Unit
+  def setAccept(s: State, isAccepting: Boolean): this.type
 
   /**
     * Returns built automaton.  Can only be used once after which the

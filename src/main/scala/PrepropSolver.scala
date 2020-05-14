@@ -49,7 +49,6 @@ import ap.parser.IExpression.GeqZ
 import ap.parser.{IConstant, IExpression, ITerm, Internal2InputAbsy}
 import ap.terfor.linearcombination.{LinearCombination, LinearCombination2}
 import dk.brics.automaton.{RegExp, Automaton => BAutomaton}
-import org.sat4j.minisat.learning.NoLearningNoHeuristics
 
 import scala.collection.breakOut
 import scala.collection.mutable.{
@@ -111,7 +110,7 @@ class PrepropSolver {
     val inputIntFormula = goal.facts.arithConj
 
     IntConstraintStore.setFormula(inputIntFormula)
-    // IntConstraintStore.setOrder(goal.order)
+    IntConstraintStore.setOrder(goal.order)
     implicit val order = goal.order
     val regex2AFA = new Regex2AFA(atoms)
     // P0 = length(x), then store (x, P0) to lenVar
